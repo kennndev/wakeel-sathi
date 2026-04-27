@@ -1,0 +1,13 @@
+{
+  "name": "wakeel-sathi",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w apps/chamber-web",
+    "build": "npm run build -w apps/chamber-web",
+    "lint": "npm run lint -w apps/chamber-web",
+    "typecheck": "npm run typecheck -w apps/chamber-web"
+  }
+}

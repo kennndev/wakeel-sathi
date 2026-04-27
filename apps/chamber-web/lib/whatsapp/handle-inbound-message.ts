@@ -171,6 +171,17 @@ export async function handleInboundWhatsappMessage(input: HandleInboundMessageIn
     entityId: created.hearingId,
     recipientUserId: sender.user_id,
   });
+
+  await notifySeniorOfConfirmedHearing({
+    organizationId: sender.organization_id,
+    senior,
+    senderUserId: sender.user_id,
+    hearingId: created.hearingId,
+    matterTitle: matter.title,
+    courtName: court?.name ?? "Not specified",
+    hearingDate: parsed.date,
+    startTime: parsed.startTime,
+  });
 }
 
 async function findWhatsappSender(phone: string): Promise<WhatsappContactRow | null> {
@@ -300,6 +311,74 @@ async function resolveCourt(input: {
   if (createError) throw new Error(`Failed to create court: ${createError.message}`);
 
   return created as CourtRow;
+}
+
+async function notifySeniorOfConfirmedHearing(input: {
+  organizationId: string;
+  senior: UserRow;
+  senderUserId: string;
+  hearingId: string;
+  matterTitle: string;
+  courtName: string;
+  hearingDate: string;
+  startTime?: string | null;
+}) {
+  if (input.senior.id === input.senderUserId) return;
+
+  const phone = await getWhatsappPhoneForUser({
+    organizationId: input.organizationId,
+    userId: input.senior.id,
+  });
+
+  if (!phone) return;
+
+  await sendWhatsappText({
+    organizationId: input.organizationId,
+    to: phone,
+    body:
+      `Hearing date confirmed.\n\n` +
+      `Matter: ${input.matterTitle}\n` +
+      `Court: ${input.courtName}\n` +
+      `Date: ${formatDateForWhatsapp(input.hearingDate)}\n` +
+      `Time: ${input.startTime ?? "Not specified"}\n\n` +
+      `A reminder will be sent one day before the hearing.`,
+    entityType: "hearing",
+    entityId: input.hearingId,
+    recipientUserId: input.senior.id,
+  });
+}
+
+async function getWhatsappPhoneForUser(input: {
+  organizationId: string;
+  userId: string;
+}): Promise<string | null> {
+  const supabase = getSupabaseAdmin();
+  const { data: contact, error: contactError } = await supabase
+    .from("whatsapp_contacts")
+    .select("phone")
+    .eq("organization_id", input.organizationId)
+    .eq("user_id", input.userId)
+    .eq("is_active", true)
+    .limit(1)
+    .maybeSingle();
+
+  if (contactError) {
+    throw new Error(`Failed to load senior WhatsApp contact: ${contactError.message}`);
+  }
+
+  if (contact?.phone) return contact.phone as string;
+
+  const { data: user, error: userError } = await supabase
+    .from("users")
+    .select("phone")
+    .eq("id", input.userId)
+    .maybeSingle();
+
+  if (userError) {
+    throw new Error(`Failed to load senior phone: ${userError.message}`);
+  }
+
+  return (user?.phone as string | undefined) ?? null;
 }
 
 function formatAvailabilityReply(input: {

@@ -1,6 +1,7 @@
 import "server-only";
 import { checkAvailability } from "../availability/check-availability";
 import { getSupabaseAdmin } from "../db/supabase-admin";
+import { scheduleHearingReminders } from "../reminders/schedule-hearing-reminders";
 import { writeActivityLog } from "../security/audit";
 
 type CreateConfirmedHearingInput = {
@@ -76,9 +77,41 @@ export async function createConfirmedHearing(input: CreateConfirmedHearingInput)
     },
   });
 
+  await scheduleHearingReminders({
+    organizationId: input.organizationId,
+    hearingId: data.id as string,
+    matterTitle: await getMatterTitle(input.matterId),
+    courtName: input.courtId ? await getCourtName(input.courtId) : null,
+    hearingDate: input.hearingDate,
+    startTime: input.startTime,
+    seniorLawyerId: input.seniorLawyerId,
+    appearingLawyerId: input.appearingLawyerId,
+    createdBy: input.createdBy,
+  });
+
   return {
     ok: true as const,
     hearingId: data.id as string,
     availability,
   };
+}
+
+async function getMatterTitle(matterId: string): Promise<string> {
+  const { data } = await getSupabaseAdmin()
+    .from("matters")
+    .select("title")
+    .eq("id", matterId)
+    .maybeSingle();
+
+  return (data?.title as string | undefined) ?? "Matter";
+}
+
+async function getCourtName(courtId: string): Promise<string | null> {
+  const { data } = await getSupabaseAdmin()
+    .from("courts")
+    .select("name")
+    .eq("id", courtId)
+    .maybeSingle();
+
+  return (data?.name as string | undefined) ?? null;
 }

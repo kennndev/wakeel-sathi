@@ -238,6 +238,61 @@ export async function sendMissingNextDateReminder(input: {
   });
 }
 
+export async function detectMissingOutcomesAndAskJuniors() {
+  const supabase = getSupabaseAdmin();
+  const today = new Date().toISOString().slice(0, 10);
+  const { data, error } = await supabase
+    .from("hearings")
+    .select(
+      "id,organization_id,matter_id,court_id,hearing_date,start_time,senior_lawyer_id,appearing_lawyer_id,matters(title),courts(name),hearing_outcomes(id)",
+    )
+    .lte("hearing_date", today)
+    .eq("outcome_required", true)
+    .is("deleted_at", null)
+    .in("status", ["scheduled", "attended", "pending_update"])
+    .limit(50);
+
+  if (error) throw new Error(`Failed to detect missing outcomes: ${error.message}`);
+
+  const hearings = ((data as unknown as Array<
+    HearingRow & { hearing_outcomes?: Array<{ id: string }> | null }
+  > | null) ?? []).filter((hearing) => !hearing.hearing_outcomes?.length);
+
+  let created = 0;
+  let asked = 0;
+  let failed = 0;
+
+  for (const hearing of hearings) {
+    try {
+      const outcomeId = await createHearingOutcome({
+        organizationId: hearing.organization_id,
+        hearingId: hearing.id,
+        matterId: hearing.matter_id,
+        appearanceStatus: "unknown",
+        outcomeType: "next_date_pending",
+        outcomeSummary: "Outcome missing after hearing date. Auto-added to Missing Next-Date queue.",
+        nextDateStatus: "pending",
+      });
+
+      created += 1;
+
+      try {
+        await sendMissingNextDateReminder({
+          organizationId: hearing.organization_id,
+          outcomeId,
+        });
+        asked += 1;
+      } catch {
+        failed += 1;
+      }
+    } catch {
+      failed += 1;
+    }
+  }
+
+  return { scanned: hearings.length, created, asked, failed };
+}
+
 export async function findLatestHearingForMatterReference(input: {
   organizationId: string;
   reference: string;

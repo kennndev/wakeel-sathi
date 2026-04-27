@@ -1,5 +1,6 @@
 import "server-only";
 import { getSupabaseAdmin } from "../db/supabase-admin";
+import { detectMissingOutcomesAndAskJuniors } from "../outcomes/hearing-outcomes";
 import { sendWhatsappText } from "../whatsapp/send-whatsapp-message";
 
 type ReminderRow = {
@@ -24,6 +25,7 @@ type ContactRow = {
 };
 
 export async function sendDueWhatsappReminders() {
+  const missingOutcomes = await detectMissingOutcomesAndAskJuniors();
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
     .from("reminders")
@@ -39,7 +41,7 @@ export async function sendDueWhatsappReminders() {
 
   const reminders = (data as ReminderRow[] | null) ?? [];
   if (!reminders.length) {
-    return { processed: 0, sent: 0, failed: 0 };
+    return { processed: 0, sent: 0, failed: 0, missingOutcomes };
   }
 
   const userIds = Array.from(
@@ -84,7 +86,7 @@ export async function sendDueWhatsappReminders() {
     }
   }
 
-  return { processed: reminders.length, sent, failed };
+  return { processed: reminders.length, sent, failed, missingOutcomes };
 }
 
 async function loadUsersById(userIds: string[]) {

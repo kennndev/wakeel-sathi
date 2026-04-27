@@ -11,6 +11,14 @@ type SendWhatsappTextInput = {
 };
 
 export async function sendWhatsappText(input: SendWhatsappTextInput) {
+  if (process.env.WHATSAPP_PROVIDER === "twilio") {
+    return sendTwilioWhatsappText(input);
+  }
+
+  return sendMetaWhatsappText(input);
+}
+
+async function sendMetaWhatsappText(input: SendWhatsappTextInput) {
   const token = process.env.WHATSAPP_ACCESS_TOKEN;
   const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
   const apiVersion = process.env.WHATSAPP_GRAPH_API_VERSION ?? "v23.0";
@@ -21,6 +29,7 @@ export async function sendWhatsappText(input: SendWhatsappTextInput) {
       status: "failed",
       failureReason: "WhatsApp API env vars missing.",
       providerMessageId: null,
+      provider: "meta_cloud_api",
     });
 
     return { ok: false as const, error: "WhatsApp API env vars missing." };
@@ -31,6 +40,7 @@ export async function sendWhatsappText(input: SendWhatsappTextInput) {
     status: "sending",
     failureReason: null,
     providerMessageId: null,
+    provider: "meta_cloud_api",
   });
 
   const response = await fetch(
@@ -61,6 +71,7 @@ export async function sendWhatsappText(input: SendWhatsappTextInput) {
       status: "failed",
       failureReason: JSON.stringify(json),
       providerMessageId: null,
+      provider: "meta_cloud_api",
     });
 
     return { ok: false as const, error: "Failed to send WhatsApp message.", details: json };
@@ -73,6 +84,77 @@ export async function sendWhatsappText(input: SendWhatsappTextInput) {
     status: "sent",
     failureReason: null,
     providerMessageId,
+    provider: "meta_cloud_api",
+  });
+
+  return { ok: true as const, providerMessageId, raw: json };
+}
+
+async function sendTwilioWhatsappText(input: SendWhatsappTextInput) {
+  const accountSid = process.env.TWILIO_ACCOUNT_SID;
+  const authToken = process.env.TWILIO_AUTH_TOKEN;
+  const from = process.env.TWILIO_WHATSAPP_FROM;
+
+  if (!accountSid || !authToken || !from) {
+    await recordNotificationEvent({
+      ...input,
+      status: "failed",
+      failureReason: "Twilio WhatsApp env vars missing.",
+      providerMessageId: null,
+      provider: "twilio",
+    });
+
+    return { ok: false as const, error: "Twilio WhatsApp env vars missing." };
+  }
+
+  await recordNotificationEvent({
+    ...input,
+    status: "sending",
+    failureReason: null,
+    providerMessageId: null,
+    provider: "twilio",
+  });
+
+  const form = new URLSearchParams({
+    From: ensureTwilioWhatsappAddress(from),
+    To: ensureTwilioWhatsappAddress(input.to),
+    Body: input.body,
+  });
+
+  const response = await fetch(
+    `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString("base64")}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: form.toString(),
+    },
+  );
+
+  const json = (await response.json()) as unknown;
+
+  if (!response.ok) {
+    await recordNotificationEvent({
+      ...input,
+      status: "failed",
+      failureReason: JSON.stringify(json),
+      providerMessageId: null,
+      provider: "twilio",
+    });
+
+    return { ok: false as const, error: "Failed to send Twilio WhatsApp message.", details: json };
+  }
+
+  const providerMessageId = extractTwilioMessageSid(json);
+
+  await recordNotificationEvent({
+    ...input,
+    status: "sent",
+    failureReason: null,
+    providerMessageId,
+    provider: "twilio",
   });
 
   return { ok: true as const, providerMessageId, raw: json };
@@ -83,6 +165,7 @@ async function recordNotificationEvent(
     status: "sending" | "sent" | "failed";
     failureReason: string | null;
     providerMessageId: string | null;
+    provider: "meta_cloud_api" | "twilio";
   },
 ) {
   await getSupabaseAdmin().from("notification_events").insert({
@@ -93,7 +176,7 @@ async function recordNotificationEvent(
     recipient_user_id: input.recipientUserId ?? null,
     recipient_phone: input.to,
     message_preview: input.body.slice(0, 500),
-    provider: "meta_cloud_api",
+    provider: input.provider,
     provider_message_id: input.providerMessageId,
     status: input.status,
     failure_reason: input.failureReason,
@@ -105,4 +188,14 @@ function extractProviderMessageId(json: unknown): string | null {
   if (!json || typeof json !== "object") return null;
   const maybe = json as { messages?: Array<{ id?: string }> };
   return maybe.messages?.[0]?.id ?? null;
+}
+
+function extractTwilioMessageSid(json: unknown): string | null {
+  if (!json || typeof json !== "object") return null;
+  const maybe = json as { sid?: string };
+  return maybe.sid ?? null;
+}
+
+function ensureTwilioWhatsappAddress(phone: string): string {
+  return phone.startsWith("whatsapp:") ? phone : `whatsapp:${phone}`;
 }

@@ -22,7 +22,7 @@ type ChamberRow = {
 };
 
 export default async function DiaryPage() {
-  const organizationId = process.env.DEFAULT_ORGANIZATION_ID;
+  const configuredOrganizationId = process.env.DEFAULT_ORGANIZATION_ID?.trim();
   const supabase = getSupabaseAdmin();
 
   const { data: chambers } = await supabase
@@ -31,18 +31,26 @@ export default async function DiaryPage() {
     .order("created_at", { ascending: false })
     .limit(5);
 
-  const { data: hearings, error } = await supabase
-    .from("hearings")
-    .select(
-      "id,hearing_date,start_time,purpose,status,matters(title),courts(name),senior:senior_lawyer_id(full_name),appearing:appearing_lawyer_id(full_name)",
-    )
-    .eq("organization_id", organizationId ?? "")
-    .is("deleted_at", null)
-    .order("hearing_date", { ascending: true })
-    .order("start_time", { ascending: true });
+  const chamberRows = (chambers as ChamberRow[] | null) ?? [];
+  const activeOrganizationId = configuredOrganizationId || chamberRows[0]?.id;
+  let hearings: HearingRow[] = [];
 
-  if (error) {
-    throw new Error(`Failed to load diary: ${error.message}`);
+  if (activeOrganizationId) {
+    const { data, error } = await supabase
+      .from("hearings")
+      .select(
+        "id,hearing_date,start_time,purpose,status,matters(title),courts(name),senior:senior_lawyer_id(full_name),appearing:appearing_lawyer_id(full_name)",
+      )
+      .eq("organization_id", activeOrganizationId)
+      .is("deleted_at", null)
+      .order("hearing_date", { ascending: true })
+      .order("start_time", { ascending: true });
+
+    if (error) {
+      throw new Error(`Failed to load diary: ${error.message}`);
+    }
+
+    hearings = (data as HearingRow[] | null) ?? [];
   }
 
   return (
@@ -63,9 +71,9 @@ export default async function DiaryPage() {
       <section className="dashboard-grid">
         <div className="panel">
           <h2>Chambers</h2>
-          {(chambers as ChamberRow[] | null)?.length ? (
+          {chamberRows.length ? (
             <div className="stack">
-              {(chambers as ChamberRow[]).map((chamber) => (
+              {chamberRows.map((chamber) => (
                 <article key={chamber.id} className="mini-card">
                   <strong>{chamber.name}</strong>
                   <span>{chamber.id}</span>
@@ -84,7 +92,7 @@ export default async function DiaryPage() {
 
         <div className="panel wide">
           <h2>Hearings</h2>
-          {(hearings as HearingRow[] | null)?.length ? (
+          {hearings.length ? (
             <div className="table-wrap">
               <table>
                 <thead>
@@ -99,7 +107,7 @@ export default async function DiaryPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {(hearings as HearingRow[]).map((hearing) => (
+                  {hearings.map((hearing) => (
                     <tr key={hearing.id}>
                       <td>{hearing.hearing_date}</td>
                       <td>{hearing.start_time ?? "Not set"}</td>

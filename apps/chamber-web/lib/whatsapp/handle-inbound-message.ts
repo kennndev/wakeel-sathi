@@ -37,9 +37,10 @@ export async function handleInboundWhatsappMessage(input: HandleInboundMessageIn
   const sender = await findWhatsappSender(input.fromPhone);
 
   if (!sender) {
+    const fallbackOrganizationId = await getFallbackOrganizationId();
+
     await sendWhatsappText({
-      organizationId:
-        process.env.DEFAULT_ORGANIZATION_ID ?? "00000000-0000-0000-0000-000000000000",
+      organizationId: fallbackOrganizationId,
       to: input.fromPhone,
       body: "Your WhatsApp number is not registered with this chamber. Ask admin to add your number first.",
       entityType: "whatsapp_inbound",
@@ -186,6 +187,23 @@ async function findWhatsappSender(phone: string): Promise<WhatsappContactRow | n
   if (error) throw new Error(`Failed to resolve WhatsApp sender: ${error.message}`);
 
   return data as WhatsappContactRow | null;
+}
+
+async function getFallbackOrganizationId(): Promise<string> {
+  const configured = process.env.DEFAULT_ORGANIZATION_ID?.trim();
+  if (configured) return configured;
+
+  const { data, error } = await getSupabaseAdmin()
+    .from("organizations")
+    .select("id")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw new Error(`Failed to resolve fallback organization: ${error.message}`);
+  if (data?.id) return data.id as string;
+
+  throw new Error("No chamber exists. Create a chamber in /setup first.");
 }
 
 async function resolveSeniorLawyer(input: {

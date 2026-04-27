@@ -46,40 +46,80 @@ export async function createChamberSetup(formData: FormData) {
     throw new Error(`Failed to save chamber members: ${membersError.message}`);
   }
 
-  const { error: contactsError } = await supabase.from("whatsapp_contacts").upsert(
-    {
-      organization_id: organizationId,
-      user_id: juniorId,
-      phone: juniorPhone,
-      is_active: true,
-    },
-    { onConflict: "organization_id,phone" },
-  );
-
-  if (contactsError) {
-    throw new Error(`Failed to save WhatsApp contact: ${contactsError.message}`);
-  }
-
-  const { error: optInError } = await supabase.from("whatsapp_opt_ins").upsert(
-    {
-      organization_id: organizationId,
-      user_id: juniorId,
-      phone: juniorPhone,
-      opt_in_status: "opted_in",
-      opted_in_at: new Date().toISOString(),
-      source: "dashboard_setup",
-    },
-    { onConflict: "organization_id,user_id,phone" },
-  );
-
-  if (optInError) {
-    throw new Error(`Failed to save WhatsApp opt-in: ${optInError.message}`);
-  }
+  await saveWhatsappOptIn({
+    organizationId,
+    userId: juniorId,
+    phone: juniorPhone,
+  });
 
   revalidatePath("/");
   revalidatePath("/setup");
   revalidatePath("/diary");
   redirect("/diary");
+}
+
+export async function addJuniorToChamber(formData: FormData) {
+  const organizationId = getRequiredString(formData, "organizationId");
+  const juniorName = getRequiredString(formData, "juniorName");
+  const juniorPhone = normalizePhone(getRequiredString(formData, "juniorPhone"));
+  const supabase = getSupabaseAdmin();
+  const juniorId = await getOrCreateUserId({
+    fullName: juniorName,
+    email: `junior-${juniorPhone.replace(/\D/g, "")}@example.com`,
+    phone: juniorPhone,
+  });
+
+  const { error: memberError } = await supabase.from("organization_members").upsert(
+    {
+      organization_id: organizationId,
+      user_id: juniorId,
+      role: "junior_lawyer",
+      status: "active",
+    },
+    { onConflict: "organization_id,user_id" },
+  );
+
+  if (memberError) {
+    throw new Error(`Failed to add junior: ${memberError.message}`);
+  }
+
+  await saveWhatsappOptIn({
+    organizationId,
+    userId: juniorId,
+    phone: juniorPhone,
+  });
+
+  revalidatePath("/setup");
+  revalidatePath("/diary");
+}
+
+export async function updateMemberPhone(formData: FormData) {
+  const organizationId = getRequiredString(formData, "organizationId");
+  const userId = getRequiredString(formData, "userId");
+  const fullName = getRequiredString(formData, "fullName");
+  const phone = normalizePhone(getRequiredString(formData, "phone"));
+  const supabase = getSupabaseAdmin();
+
+  const { error: userError } = await supabase
+    .from("users")
+    .update({
+      full_name: fullName,
+      phone,
+    })
+    .eq("id", userId);
+
+  if (userError) {
+    throw new Error(`Failed to update member: ${userError.message}`);
+  }
+
+  await saveWhatsappOptIn({
+    organizationId,
+    userId,
+    phone,
+  });
+
+  revalidatePath("/setup");
+  revalidatePath("/diary");
 }
 
 async function getOrCreateOrganizationId(name: string): Promise<string> {
@@ -162,6 +202,43 @@ async function getOrCreateUserId(input: {
   }
 
   return created.id as string;
+}
+
+async function saveWhatsappOptIn(input: {
+  organizationId: string;
+  userId: string;
+  phone: string;
+}) {
+  const supabase = getSupabaseAdmin();
+  const { error: contactsError } = await supabase.from("whatsapp_contacts").upsert(
+    {
+      organization_id: input.organizationId,
+      user_id: input.userId,
+      phone: input.phone,
+      is_active: true,
+    },
+    { onConflict: "organization_id,phone" },
+  );
+
+  if (contactsError) {
+    throw new Error(`Failed to save WhatsApp contact: ${contactsError.message}`);
+  }
+
+  const { error: optInError } = await supabase.from("whatsapp_opt_ins").upsert(
+    {
+      organization_id: input.organizationId,
+      user_id: input.userId,
+      phone: input.phone,
+      opt_in_status: "opted_in",
+      opted_in_at: new Date().toISOString(),
+      source: "dashboard_setup",
+    },
+    { onConflict: "organization_id,user_id,phone" },
+  );
+
+  if (optInError) {
+    throw new Error(`Failed to save WhatsApp opt-in: ${optInError.message}`);
+  }
 }
 
 function getRequiredString(formData: FormData, key: string): string {

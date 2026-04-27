@@ -245,6 +245,95 @@ input:focus {
   grid-template-columns: minmax(0, 1fr) 24rem;
 }
 
+.management-board {
+  border: 1px solid var(--line);
+  background: rgba(255, 252, 244, 0.88);
+  box-shadow: var(--shadow);
+  margin-bottom: 1rem;
+  padding: clamp(1.25rem, 3vw, 2rem);
+}
+
+.management-header {
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+  padding-bottom: 1.25rem;
+}
+
+.management-header h2,
+.management-header p {
+  margin: 0;
+}
+
+.management-header code {
+  color: var(--muted);
+  display: block;
+  font-size: 0.82rem;
+  margin-top: 0.45rem;
+  overflow-wrap: anywhere;
+}
+
+.management-header a {
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  padding: 0.75rem 1rem;
+  text-decoration: none;
+}
+
+.member-columns {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.member-column {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.member-column h3 {
+  font-size: 1.45rem;
+  margin: 0 0 0.25rem;
+}
+
+.member-card,
+.add-member-card {
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.34);
+  display: grid;
+  gap: 0.8rem;
+  padding: 1rem;
+}
+
+.add-member-card {
+  border-style: dashed;
+}
+
+.member-card-top {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.member-card-top span {
+  color: var(--accent);
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 0.72rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.member-card-top strong {
+  font-size: 1.2rem;
+}
+
+.member-card button,
+.add-member-card button {
+  justify-self: start;
+}
+
 .setup-form,
 .setup-guide {
   padding: clamp(1.25rem, 3vw, 2rem);
@@ -653,6 +742,7 @@ th {
   .dashboard-grid,
   .diary-hero,
   .diary-layout,
+  .member-columns,
   .setup-hero,
   .setup-layout {
     grid-template-columns: 1fr;
@@ -669,6 +759,7 @@ th {
   }
 
   .hearing-title-row,
+  .management-header,
   .topbar {
     align-items: stretch;
     flex-direction: column;

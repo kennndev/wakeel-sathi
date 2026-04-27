@@ -8,6 +8,11 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const result = await sendDueWhatsappReminders();
-  return NextResponse.json({ ok: true, ...result });
+  try {
+    const result = await sendDueWhatsappReminders();
+    return NextResponse.json({ ok: true, ...result });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown cron error";
+    return NextResponse.json({ ok: false, error: message }, { status: 500 });
+  }
 }

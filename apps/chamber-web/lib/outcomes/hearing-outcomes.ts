@@ -244,7 +244,7 @@ export async function detectMissingOutcomesAndAskJuniors() {
   const { data, error } = await supabase
     .from("hearings")
     .select(
-      "id,organization_id,matter_id,court_id,hearing_date,start_time,senior_lawyer_id,appearing_lawyer_id,matters(title),courts(name),hearing_outcomes(id)",
+      "id,organization_id,matter_id,court_id,hearing_date,start_time,senior_lawyer_id,appearing_lawyer_id,matters(title),courts(name)",
     )
     .lte("hearing_date", today)
     .eq("outcome_required", true)
@@ -254,9 +254,13 @@ export async function detectMissingOutcomesAndAskJuniors() {
 
   if (error) throw new Error(`Failed to detect missing outcomes: ${error.message}`);
 
-  const hearings = ((data as unknown as Array<
-    HearingRow & { hearing_outcomes?: Array<{ id: string }> | null }
-  > | null) ?? []).filter((hearing) => !hearing.hearing_outcomes?.length);
+  const candidateHearings = (data as unknown as HearingRow[] | null) ?? [];
+  const existingOutcomeHearingIds = await loadExistingOutcomeHearingIds(
+    candidateHearings.map((hearing) => hearing.id),
+  );
+  const hearings = candidateHearings.filter(
+    (hearing) => !existingOutcomeHearingIds.has(hearing.id),
+  );
 
   let created = 0;
   let asked = 0;
@@ -291,6 +295,24 @@ export async function detectMissingOutcomesAndAskJuniors() {
   }
 
   return { scanned: hearings.length, created, asked, failed };
+}
+
+async function loadExistingOutcomeHearingIds(hearingIds: string[]) {
+  const existingIds = new Set<string>();
+  if (!hearingIds.length) return existingIds;
+
+  const { data, error } = await getSupabaseAdmin()
+    .from("hearing_outcomes")
+    .select("hearing_id")
+    .in("hearing_id", hearingIds);
+
+  if (error) throw new Error(`Failed to load existing outcomes: ${error.message}`);
+
+  for (const row of (data as Array<{ hearing_id: string }> | null) ?? []) {
+    existingIds.add(row.hearing_id);
+  }
+
+  return existingIds;
 }
 
 export async function findLatestHearingForMatterReference(input: {

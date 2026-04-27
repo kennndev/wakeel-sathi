@@ -215,19 +215,26 @@ export async function sendMissingNextDateReminder(input: {
 
   if (!phone) throw new Error("Assigned junior has no WhatsApp/phone number.");
 
-  await sendWhatsappText({
+  const result = await sendWhatsappText({
     organizationId: input.organizationId,
     to: phone,
     body:
-      `Next date needed.\n\n` +
+      `Outcome update needed.\n\n` +
       `Matter: ${single(hearing?.matters ?? null)?.title ?? "Unknown"}\n` +
       `Court: ${single(hearing?.courts ?? null)?.name ?? "Not specified"}\n` +
       `Last hearing: ${hearing?.hearing_date ?? "Unknown"}\n\n` +
-      `Reply: NEXTDATE ${single(hearing?.matters ?? null)?.title ?? "matter"} DD-MM-YYYY time`,
+      `If adjourned, reply:\n` +
+      `OUTCOME ${single(hearing?.matters ?? null)?.title ?? "matter"} adjourned next: DD-MM-YYYY\n\n` +
+      `If next date is not known, reply:\n` +
+      `OUTCOME ${single(hearing?.matters ?? null)?.title ?? "matter"} adjourned next: pending`,
     entityType: "hearing_outcome",
     entityId: input.outcomeId,
     recipientUserId: appearingLawyerId,
   });
+
+  if (!result.ok) {
+    throw new Error(result.error);
+  }
 
   await writeActivityLog({
     organizationId: input.organizationId,
@@ -265,6 +272,7 @@ export async function detectMissingOutcomesAndAskJuniors() {
   let created = 0;
   let asked = 0;
   let failed = 0;
+  const failures: string[] = [];
 
   for (const hearing of hearings) {
     try {
@@ -286,15 +294,17 @@ export async function detectMissingOutcomesAndAskJuniors() {
           outcomeId,
         });
         asked += 1;
-      } catch {
+      } catch (error) {
         failed += 1;
+        failures.push(formatDetectionFailure(hearing, error));
       }
-    } catch {
+    } catch (error) {
       failed += 1;
+      failures.push(formatDetectionFailure(hearing, error));
     }
   }
 
-  return { scanned: hearings.length, created, asked, failed };
+  return { scanned: hearings.length, created, asked, failed, failures };
 }
 
 async function loadExistingOutcomeHearingIds(hearingIds: string[]) {
@@ -427,4 +437,10 @@ function escapeLike(value: string) {
 function single<T>(value: T | T[] | null | undefined): T | null {
   if (!value) return null;
   return Array.isArray(value) ? value[0] ?? null : value;
+}
+
+function formatDetectionFailure(hearing: HearingRow, error: unknown): string {
+  const message = error instanceof Error ? error.message : "Unknown error";
+  const matter = single(hearing.matters)?.title ?? hearing.matter_id;
+  return `${matter}: ${message}`;
 }

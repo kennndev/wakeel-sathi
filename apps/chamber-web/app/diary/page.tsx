@@ -53,78 +53,140 @@ export default async function DiaryPage() {
     hearings = (data as HearingRow[] | null) ?? [];
   }
 
+  const upcomingHearings = hearings.filter((hearing) => hearing.status === "scheduled");
+  const courts = new Set(
+    hearings.map((hearing) => single(hearing.courts)?.name).filter(Boolean),
+  );
+
   return (
-    <main className="page-shell">
-      <section className="hero-panel compact">
-        <p className="eyebrow">Court Diary</p>
-        <h1>Chamber Dates</h1>
-        <p>
-          Dates saved from WhatsApp appear here. If setup is empty, create the chamber
-          first so inbound WhatsApp numbers can resolve to a user.
-        </p>
-        <div className="action-row">
-          <Link href="/setup">Setup chamber</Link>
-          <Link href="/">Home</Link>
+    <main className="diary-page">
+      <nav className="topbar">
+        <Link href="/" className="brand-mark">
+          Wakeel Sathi
+        </Link>
+        <div>
+          <Link href="/setup">Setup</Link>
+          <Link href="/diary">Diary</Link>
+        </div>
+      </nav>
+
+      <section className="diary-hero">
+        <div>
+          <p className="eyebrow">Court Diary</p>
+          <h1>Chamber Dates</h1>
+          <p>
+            Dates saved from WhatsApp appear here with chamber contacts, assigned
+            lawyers, courts, and reminder-ready hearing records.
+          </p>
+          <div className="action-row">
+            <Link href="/setup">Setup chamber</Link>
+            <Link href="/">Home</Link>
+          </div>
+        </div>
+
+        <div className="metric-grid">
+          <article>
+            <span>Total hearings</span>
+            <strong>{hearings.length}</strong>
+          </article>
+          <article>
+            <span>Scheduled</span>
+            <strong>{upcomingHearings.length}</strong>
+          </article>
+          <article>
+            <span>Courts</span>
+            <strong>{courts.size}</strong>
+          </article>
         </div>
       </section>
 
-      <section className="dashboard-grid">
-        <div className="panel">
-          <h2>Chambers</h2>
+      <section className="diary-layout">
+        <aside className="diary-panel chamber-panel">
+          <div className="panel-heading">
+            <p className="eyebrow">Workspace</p>
+            <h2>Chambers</h2>
+          </div>
           {chamberRows.length ? (
             <div className="stack">
               {chamberRows.map((chamber) => (
-                <article key={chamber.id} className="mini-card">
+                <article
+                  key={chamber.id}
+                  className={
+                    chamber.id === activeOrganizationId
+                      ? "chamber-card is-active"
+                      : "chamber-card"
+                  }
+                >
+                  <span>Active chamber</span>
                   <strong>{chamber.name}</strong>
-                  <span>{chamber.id}</span>
-                  <span>
-                    WhatsApp contacts:{" "}
-                    {chamber.whatsapp_contacts?.map((contact) => contact.phone).join(", ") ||
-                      "none"}
-                  </span>
+                  <code>{chamber.id}</code>
+                  <div>
+                    {(chamber.whatsapp_contacts ?? []).map((contact) => (
+                      <small key={contact.phone}>{contact.phone}</small>
+                    ))}
+                    {!chamber.whatsapp_contacts?.length ? <small>No contacts</small> : null}
+                  </div>
                 </article>
               ))}
             </div>
           ) : (
             <p>No chamber records yet.</p>
           )}
-        </div>
+        </aside>
 
-        <div className="panel wide">
-          <h2>Hearings</h2>
+        <section className="diary-panel hearings-panel">
+          <div className="panel-heading split">
+            <div>
+              <p className="eyebrow">Schedule</p>
+              <h2>Hearings</h2>
+            </div>
+            <span>{hearings.length ? `${hearings.length} saved` : "No saved dates"}</span>
+          </div>
           {hearings.length ? (
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Date</th>
-                    <th>Time</th>
-                    <th>Matter</th>
-                    <th>Court</th>
-                    <th>Senior</th>
-                    <th>Appearing</th>
-                    <th>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {hearings.map((hearing) => (
-                    <tr key={hearing.id}>
-                      <td>{hearing.hearing_date}</td>
-                      <td>{hearing.start_time ?? "Not set"}</td>
-                      <td>{single(hearing.matters)?.title ?? "Unknown"}</td>
-                      <td>{single(hearing.courts)?.name ?? "Not specified"}</td>
-                      <td>{single(hearing.senior)?.full_name ?? "Not set"}</td>
-                      <td>{single(hearing.appearing)?.full_name ?? "Not set"}</td>
-                      <td>{hearing.status}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="hearing-list">
+              {hearings.map((hearing) => (
+                <article key={hearing.id} className="hearing-card">
+                  <div className="date-tile">
+                    <span>{formatMonth(hearing.hearing_date)}</span>
+                    <strong>{formatDay(hearing.hearing_date)}</strong>
+                  </div>
+                  <div className="hearing-main">
+                    <div className="hearing-title-row">
+                      <div>
+                        <h3>{single(hearing.matters)?.title ?? "Unknown matter"}</h3>
+                        <p>{single(hearing.courts)?.name ?? "Court not specified"}</p>
+                      </div>
+                      <span className="status-pill">{hearing.status}</span>
+                    </div>
+                    <dl>
+                      <div>
+                        <dt>Time</dt>
+                        <dd>{hearing.start_time ?? "Not set"}</dd>
+                      </div>
+                      <div>
+                        <dt>Senior</dt>
+                        <dd>{single(hearing.senior)?.full_name ?? "Not set"}</dd>
+                      </div>
+                      <div>
+                        <dt>Appearing</dt>
+                        <dd>{single(hearing.appearing)?.full_name ?? "Not set"}</dd>
+                      </div>
+                    </dl>
+                  </div>
+                </article>
+              ))}
             </div>
           ) : (
-            <p>No hearings saved yet. Send a SAVE command through WhatsApp after setup.</p>
+            <div className="empty-state">
+              <strong>No hearings saved yet.</strong>
+              <p>Send a SAVE command through WhatsApp after setup.</p>
+              <code>
+                SAVE 12-05-2026 10am senior: Senior Lawyer matter: Cheque case court:
+                Banking Court Lahore
+              </code>
+            </div>
           )}
-        </div>
+        </section>
       </section>
     </main>
   );
@@ -133,4 +195,12 @@ export default async function DiaryPage() {
 function single<T>(value: T | T[] | null): T | null {
   if (!value) return null;
   return Array.isArray(value) ? value[0] ?? null : value;
+}
+
+function formatMonth(date: string): string {
+  return new Intl.DateTimeFormat("en", { month: "short" }).format(new Date(`${date}T00:00:00`));
+}
+
+function formatDay(date: string): string {
+  return new Intl.DateTimeFormat("en", { day: "2-digit" }).format(new Date(`${date}T00:00:00`));
 }

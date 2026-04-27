@@ -239,7 +239,7 @@ input:focus {
 }
 
 .setup-layout {
-  align-items: start;
+  align-items: flex-start;
   display: grid;
   gap: 1rem;
   grid-template-columns: minmax(0, 1fr) 24rem;
@@ -251,7 +251,7 @@ input:focus {
 }
 
 .form-section-heading {
-  align-items: start;
+  align-items: flex-start;
   border-top: 1px solid var(--line);
   display: grid;
   gap: 1rem;
@@ -392,15 +392,285 @@ th {
   text-transform: uppercase;
 }
 
+.topbar {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+
+.topbar > div {
+  display: flex;
+  gap: 0.55rem;
+}
+
+.topbar a {
+  background: rgba(255, 252, 244, 0.7);
+  border: 1px solid var(--line);
+  padding: 0.65rem 0.8rem;
+  text-decoration: none;
+}
+
+.brand-mark {
+  background: var(--accent-strong) !important;
+  color: #fffaf0 !important;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.diary-page {
+  min-height: 100vh;
+  width: min(1280px, calc(100% - 2rem));
+  margin: 0 auto;
+  padding: clamp(1rem, 3vw, 2.4rem) 0 4rem;
+}
+
+.diary-hero {
+  border: 1px solid var(--line);
+  background:
+    linear-gradient(100deg, rgba(255, 252, 244, 0.96), rgba(255, 252, 244, 0.78)),
+    radial-gradient(circle at 90% 20%, rgba(30, 104, 77, 0.16), transparent 20rem);
+  box-shadow: var(--shadow);
+  display: grid;
+  gap: 1.5rem;
+  grid-template-columns: minmax(0, 1fr) 25rem;
+  padding: clamp(1.5rem, 4vw, 3rem);
+}
+
+.diary-hero h1 {
+  max-width: 10ch;
+}
+
+.diary-hero p {
+  max-width: 62rem;
+}
+
+.metric-grid {
+  align-self: end;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.metric-grid article {
+  border: 1px solid var(--line);
+  background: rgba(255, 250, 240, 0.75);
+  display: flex;
+  justify-content: space-between;
+  padding: 1rem;
+}
+
+.metric-grid span,
+.panel-heading.split > span,
+.chamber-card > span {
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 0.75rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.metric-grid strong {
+  color: var(--accent-strong);
+  font-size: 2rem;
+  line-height: 0.85;
+}
+
+.diary-layout {
+  align-items: flex-start;
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: 22rem minmax(0, 1fr);
+  margin-top: 1rem;
+}
+
+.diary-panel {
+  border: 1px solid var(--line);
+  background: var(--card);
+  box-shadow: 0 1rem 3rem rgba(29, 33, 28, 0.1);
+  padding: clamp(1.1rem, 2vw, 1.6rem);
+}
+
+.chamber-panel {
+  position: sticky;
+  top: 1rem;
+}
+
+.panel-heading {
+  margin-bottom: 1rem;
+}
+
+.panel-heading h2,
+.panel-heading p {
+  margin: 0;
+}
+
+.panel-heading.split {
+  align-items: flex-start;
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.chamber-card {
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.32);
+  display: grid;
+  gap: 0.55rem;
+  padding: 1rem;
+}
+
+.chamber-card.is-active {
+  border-color: var(--accent);
+  box-shadow: inset 4px 0 0 var(--accent);
+}
+
+.chamber-card strong {
+  font-size: 1.2rem;
+}
+
+.chamber-card code {
+  color: var(--muted);
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
+}
+
+.chamber-card div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.chamber-card small,
+.status-pill {
+  border: 1px solid rgba(30, 104, 77, 0.25);
+  background: rgba(30, 104, 77, 0.08);
+  color: var(--accent-strong);
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 0.75rem;
+  padding: 0.35rem 0.5rem;
+}
+
+.hearing-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.hearing-card {
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.34);
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: 5rem minmax(0, 1fr);
+  padding: 1rem;
+}
+
+.date-tile {
+  background: #1e1810;
+  color: #fffaf0;
+  display: grid;
+  min-height: 5rem;
+  place-items: center;
+}
+
+.date-tile span {
+  color: #dfcda8;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 0.72rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.date-tile strong {
+  font-size: 2.1rem;
+  line-height: 0.8;
+}
+
+.hearing-main {
+  min-width: 0;
+}
+
+.hearing-title-row {
+  align-items: flex-start;
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+}
+
+.hearing-title-row h3,
+.hearing-title-row p {
+  margin: 0;
+}
+
+.hearing-title-row h3 {
+  font-size: 1.35rem;
+}
+
+.hearing-title-row p {
+  font-size: 0.98rem;
+}
+
+.hearing-card dl {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 1rem 0 0;
+}
+
+.hearing-card dt {
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 0.72rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.hearing-card dd {
+  margin: 0.2rem 0 0;
+  overflow-wrap: anywhere;
+}
+
+.empty-state {
+  border: 1px dashed var(--line);
+  display: grid;
+  gap: 0.75rem;
+  padding: 1.2rem;
+}
+
+.empty-state p {
+  margin: 0;
+}
+
+.empty-state code {
+  background: rgba(30, 24, 16, 0.07);
+  color: var(--accent-strong);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+  padding: 0.8rem;
+}
+
 @media (max-width: 760px) {
   .form-grid,
   .dashboard-grid,
+  .diary-hero,
+  .diary-layout,
   .setup-hero,
   .setup-layout {
     grid-template-columns: 1fr;
   }
 
-  .setup-guide {
+  .setup-guide,
+  .chamber-panel {
     position: static;
+  }
+
+  .hearing-card,
+  .hearing-card dl {
+    grid-template-columns: 1fr;
+  }
+
+  .hearing-title-row,
+  .topbar {
+    align-items: stretch;
+    flex-direction: column;
   }
 }

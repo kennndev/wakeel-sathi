@@ -172,7 +172,7 @@ export async function getMissingNextDateQueue(organizationId?: string | null) {
   let query = supabase
     .from("hearing_outcomes")
     .select(
-      "id,organization_id,hearing_id,matter_id,outcome_type,outcome_summary,next_date_status,created_at,hearings(hearing_date,start_time,senior_lawyer_id,appearing_lawyer_id,matters(title),courts(name),senior:senior_lawyer_id(full_name,phone),appearing:appearing_lawyer_id(full_name,phone))",
+      "id,organization_id,hearing_id,matter_id,outcome_type,outcome_summary,next_date_status,created_at,hearings!hearing_outcomes_hearing_id_fkey(hearing_date,start_time,senior_lawyer_id,appearing_lawyer_id,matters(title),courts(name),senior:senior_lawyer_id(full_name,phone),appearing:appearing_lawyer_id(full_name,phone))",
     )
     .in("next_date_status", ["pending", "not_given", "awaiting_cause_list"])
     .order("created_at", { ascending: true });
@@ -194,7 +194,7 @@ export async function sendMissingNextDateReminder(input: {
   const { data, error } = await supabase
     .from("hearing_outcomes")
     .select(
-      "id,organization_id,hearing_id,matter_id,hearings(hearing_date,appearing_lawyer_id,matters(title),courts(name),appearing:appearing_lawyer_id(full_name,phone))",
+      "id,organization_id,hearing_id,matter_id,hearings!hearing_outcomes_hearing_id_fkey(hearing_date,appearing_lawyer_id,matters(title),courts(name),appearing:appearing_lawyer_id(full_name,phone))",
     )
     .eq("id", input.outcomeId)
     .maybeSingle();
@@ -349,7 +349,7 @@ export async function findOpenOutcomeForMatterReference(input: {
   const { data, error } = await getSupabaseAdmin()
     .from("hearing_outcomes")
     .select(
-      "id,organization_id,hearing_id,matter_id,hearings(id,organization_id,matter_id,court_id,hearing_date,start_time,senior_lawyer_id,appearing_lawyer_id,matters(title),courts(name))",
+      "id,organization_id,hearing_id,matter_id,hearings!hearing_outcomes_hearing_id_fkey(id,organization_id,matter_id,court_id,hearing_date,start_time,senior_lawyer_id,appearing_lawyer_id,matters(title),courts(name))",
     )
     .eq("organization_id", input.organizationId)
     .eq("matter_id", matter.id)

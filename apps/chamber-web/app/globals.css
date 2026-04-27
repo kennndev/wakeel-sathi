@@ -155,7 +155,28 @@ input {
   padding: 0.85rem 0.95rem;
 }
 
+select,
+textarea {
+  border: 1px solid var(--line);
+  background: #fffdf7;
+  color: var(--ink);
+  font: inherit;
+  padding: 0.85rem 0.95rem;
+  width: 100%;
+}
+
+textarea {
+  resize: vertical;
+}
+
 input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4px rgba(30, 104, 77, 0.12);
+  outline: none;
+}
+
+select:focus,
+textarea:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 4px rgba(30, 104, 77, 0.12);
   outline: none;
@@ -548,6 +569,20 @@ th {
   padding: 1rem;
 }
 
+.metric-link {
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: #fffaf0;
+  padding: 0.85rem 1rem;
+  text-align: center;
+  text-decoration: none;
+}
+
+.metric-link.is-alert {
+  border-color: #9b2f1f;
+  background: #9b2f1f;
+}
+
 .metric-grid span,
 .panel-heading.split > span,
 .chamber-card > span {
@@ -705,6 +740,26 @@ th {
   margin: 1rem 0 0;
 }
 
+.hearing-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-top: 1rem;
+}
+
+.hearing-actions a,
+.queue-actions a,
+.queue-actions button {
+  border: 1px solid var(--accent);
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+  padding: 0.65rem 0.8rem;
+  text-decoration: none;
+}
+
 .hearing-card dt {
   color: var(--muted);
   font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
@@ -737,6 +792,61 @@ th {
   padding: 0.8rem;
 }
 
+.queue-hero h1 {
+  max-width: 12ch;
+}
+
+.queue-list {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.queue-card {
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.34);
+  display: grid;
+  gap: 1rem;
+  padding: 1rem;
+}
+
+.queue-card h3,
+.queue-card p {
+  margin: 0.4rem 0 0;
+}
+
+.queue-card h3 {
+  font-size: 1.35rem;
+}
+
+.queue-card dl {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 0;
+}
+
+.queue-card dt {
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 0.72rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.queue-card dd {
+  margin: 0.2rem 0 0;
+}
+
+.queue-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.queue-actions form {
+  margin: 0;
+}
+
 @media (max-width: 760px) {
   .form-grid,
   .dashboard-grid,
@@ -754,7 +864,8 @@ th {
   }
 
   .hearing-card,
-  .hearing-card dl {
+  .hearing-card dl,
+  .queue-card dl {
     grid-template-columns: 1fr;
   }
 

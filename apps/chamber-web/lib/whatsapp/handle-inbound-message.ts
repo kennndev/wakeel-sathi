@@ -2,6 +2,16 @@ import "server-only";
 import { checkAvailability } from "../availability/check-availability";
 import { getSupabaseAdmin } from "../db/supabase-admin";
 import { createConfirmedHearing } from "../hearings/create-confirmed-hearing";
+import {
+  addNextDateFromOutcome,
+  createHearingOutcome,
+  findLatestHearingForMatterReference,
+  findOpenOutcomeForMatterReference,
+  parseOutcomeDate,
+  parseOutcomeTime,
+  type NextDateStatus,
+  type OutcomeType,
+} from "../outcomes/hearing-outcomes";
 import { formatDateForWhatsapp } from "../utils/date";
 import { parseInboundCommand } from "./parse-inbound-command";
 import { sendWhatsappText } from "./send-whatsapp-message";
@@ -45,6 +55,26 @@ export async function handleInboundWhatsappMessage(input: HandleInboundMessageIn
       body: "Your WhatsApp number is not registered with this chamber. Ask admin to add your number first.",
       entityType: "whatsapp_inbound",
       entityId: crypto.randomUUID(),
+    });
+    return;
+  }
+
+  if (isOutcomeCommand(input.text)) {
+    await handleOutcomeWhatsappCommand({
+      organizationId: sender.organization_id,
+      senderUserId: sender.user_id,
+      fromPhone: input.fromPhone,
+      text: input.text,
+    });
+    return;
+  }
+
+  if (isNextDateCommand(input.text)) {
+    await handleNextDateWhatsappCommand({
+      organizationId: sender.organization_id,
+      senderUserId: sender.user_id,
+      fromPhone: input.fromPhone,
+      text: input.text,
     });
     return;
   }
@@ -379,6 +409,268 @@ async function getWhatsappPhoneForUser(input: {
   }
 
   return (user?.phone as string | undefined) ?? null;
+}
+
+async function handleOutcomeWhatsappCommand(input: {
+  organizationId: string;
+  senderUserId: string;
+  fromPhone: string;
+  text: string;
+}) {
+  const parsed = parseOutcomeWhatsappText(input.text);
+
+  if (!parsed.ok) {
+    await sendWhatsappText({
+      organizationId: input.organizationId,
+      to: input.fromPhone,
+      body: parsed.error,
+      entityType: "whatsapp_inbound",
+      entityId: input.senderUserId,
+      recipientUserId: input.senderUserId,
+    });
+    return;
+  }
+
+  const hearing = await findLatestHearingForMatterReference({
+    organizationId: input.organizationId,
+    reference: parsed.matterReference,
+  });
+
+  if (!hearing) {
+    await sendWhatsappText({
+      organizationId: input.organizationId,
+      to: input.fromPhone,
+      body:
+        `Matter/hearing not found for "${parsed.matterReference}". ` +
+        `Use a case number or an exact matter title already saved in diary.`,
+      entityType: "whatsapp_inbound",
+      entityId: input.senderUserId,
+      recipientUserId: input.senderUserId,
+    });
+    return;
+  }
+
+  if (parsed.nextDateStatus === "entered" && parsed.nextDate) {
+    const nextHearingId = await addNextDateFromOutcome({
+      organizationId: input.organizationId,
+      sourceHearingId: hearing.id,
+      matterId: hearing.matter_id,
+      courtId: hearing.court_id,
+      hearingDate: parsed.nextDate,
+      startTime: parsed.nextTime,
+      seniorLawyerId: hearing.senior_lawyer_id,
+      appearingLawyerId: hearing.appearing_lawyer_id,
+      createdBy: input.senderUserId,
+      purpose: "Next hearing from WhatsApp outcome",
+    });
+
+    await sendWhatsappText({
+      organizationId: input.organizationId,
+      to: input.fromPhone,
+      body:
+        `Outcome saved.\n` +
+        `Next date added to diary: ${formatDateForWhatsapp(parsed.nextDate)}.\n` +
+        `Hearing ID: ${nextHearingId}`,
+      entityType: "hearing",
+      entityId: nextHearingId,
+      recipientUserId: input.senderUserId,
+    });
+    return;
+  }
+
+  await createHearingOutcome({
+    organizationId: input.organizationId,
+    hearingId: hearing.id,
+    matterId: hearing.matter_id,
+    updatedBy: input.senderUserId,
+    appearanceStatus: "appeared",
+    outcomeType: parsed.outcomeType,
+    outcomeSummary: parsed.summary,
+    nextDateStatus: parsed.nextDateStatus,
+  });
+
+  await sendWhatsappText({
+    organizationId: input.organizationId,
+    to: input.fromPhone,
+    body:
+      parsed.nextDateStatus === "pending"
+        ? "Outcome saved.\nThis matter is now in Missing Next-Date queue.\nReminder will stay active until next date is entered."
+        : `Outcome saved.\nStatus: ${parsed.nextDateStatus}.`,
+    entityType: "hearing",
+    entityId: hearing.id,
+    recipientUserId: input.senderUserId,
+  });
+}
+
+async function handleNextDateWhatsappCommand(input: {
+  organizationId: string;
+  senderUserId: string;
+  fromPhone: string;
+  text: string;
+}) {
+  const parsed = parseNextDateWhatsappText(input.text);
+
+  if (!parsed.ok) {
+    await sendWhatsappText({
+      organizationId: input.organizationId,
+      to: input.fromPhone,
+      body: parsed.error,
+      entityType: "whatsapp_inbound",
+      entityId: input.senderUserId,
+      recipientUserId: input.senderUserId,
+    });
+    return;
+  }
+
+  const openOutcome = await findOpenOutcomeForMatterReference({
+    organizationId: input.organizationId,
+    reference: parsed.matterReference,
+  });
+
+  if (!openOutcome?.hearing) {
+    await sendWhatsappText({
+      organizationId: input.organizationId,
+      to: input.fromPhone,
+      body: `No Missing Next-Date item found for "${parsed.matterReference}".`,
+      entityType: "whatsapp_inbound",
+      entityId: input.senderUserId,
+      recipientUserId: input.senderUserId,
+    });
+    return;
+  }
+
+  await addNextDateFromOutcome({
+    organizationId: input.organizationId,
+    sourceHearingId: openOutcome.hearing.id,
+    matterId: openOutcome.hearing.matter_id,
+    courtId: openOutcome.hearing.court_id,
+    hearingDate: parsed.nextDate,
+    startTime: parsed.nextTime,
+    seniorLawyerId: openOutcome.hearing.senior_lawyer_id,
+    appearingLawyerId: openOutcome.hearing.appearing_lawyer_id,
+    createdBy: input.senderUserId,
+    purpose: "Next hearing fixed from WhatsApp",
+  });
+
+  await sendWhatsappText({
+    organizationId: input.organizationId,
+    to: input.fromPhone,
+    body:
+      `Next date saved.\n` +
+      `Matter removed from Missing Next-Date queue.\n` +
+      `Date: ${formatDateForWhatsapp(parsed.nextDate)}\n` +
+      `Time: ${parsed.nextTime ?? "Not specified"}`,
+    entityType: "hearing_outcome",
+    entityId: openOutcome.outcomeId,
+    recipientUserId: input.senderUserId,
+  });
+}
+
+function isOutcomeCommand(text: string) {
+  return text.trim().toLowerCase().startsWith("outcome ");
+}
+
+function isNextDateCommand(text: string) {
+  return text.trim().toLowerCase().startsWith("nextdate ");
+}
+
+function parseOutcomeWhatsappText(text: string):
+  | {
+      ok: true;
+      matterReference: string;
+      outcomeType: OutcomeType;
+      nextDateStatus: NextDateStatus;
+      nextDate: string | null;
+      nextTime: string | null;
+      summary: string;
+    }
+  | { ok: false; error: string } {
+  const match = text.trim().match(/^outcome\s+(\S+)\s+(\S+)(.*)$/i);
+  if (!match) {
+    return {
+      ok: false,
+      error: "Use: OUTCOME matter-ref adjourned next: 12-05-2026 OR next: pending",
+    };
+  }
+
+  const matterReference = match[1];
+  const outcomeWord = match[2].toLowerCase();
+  const rest = match[3] ?? "";
+  const outcomeType = normalizeOutcomeType(outcomeWord);
+  const nextValue = rest.match(/next\s*:\s*([^\n]+)/i)?.[1]?.trim() ?? null;
+
+  if (!outcomeType) {
+    return { ok: false, error: "Unknown outcome. Use adjourned, disposed, reserved, cause-list." };
+  }
+
+  if (!nextValue && outcomeType === "adjourned") {
+    return { ok: false, error: "Adjourned outcome needs next: DD-MM-YYYY or next: pending." };
+  }
+
+  const nextDateStatus = getNextDateStatus(outcomeType, nextValue);
+  const nextDateMatch = nextValue?.match(/(\d{4}-\d{2}-\d{2}|\d{1,2}[/-]\d{1,2}[/-]\d{4})/);
+  const nextDate = nextDateMatch ? parseOutcomeDate(nextDateMatch[1]) : null;
+  const nextTime = parseOutcomeTime(nextValue?.replace(nextDateMatch?.[1] ?? "", "").trim());
+
+  if (nextDateStatus === "entered" && !nextDate) {
+    return { ok: false, error: "Invalid next date. Use DD-MM-YYYY, DD/MM/YYYY, or YYYY-MM-DD." };
+  }
+
+  return {
+    ok: true,
+    matterReference,
+    outcomeType,
+    nextDateStatus,
+    nextDate,
+    nextTime,
+    summary: `WhatsApp outcome: ${outcomeType}${nextValue ? `, next: ${nextValue}` : ""}`,
+  };
+}
+
+function parseNextDateWhatsappText(text: string):
+  | { ok: true; matterReference: string; nextDate: string; nextTime: string | null }
+  | { ok: false; error: string } {
+  const match = text
+    .trim()
+    .match(/^nextdate\s+(\S+)\s+(\d{4}-\d{2}-\d{2}|\d{1,2}[/-]\d{1,2}[/-]\d{4})(.*)$/i);
+
+  if (!match) {
+    return { ok: false, error: "Use: NEXTDATE matter-ref 12-05-2026 10am" };
+  }
+
+  const nextDate = parseOutcomeDate(match[2]);
+  if (!nextDate) return { ok: false, error: "Invalid date format." };
+
+  return {
+    ok: true,
+    matterReference: match[1],
+    nextDate,
+    nextTime: parseOutcomeTime(match[3]?.trim()),
+  };
+}
+
+function normalizeOutcomeType(value: string): OutcomeType | null {
+  if (value === "adjourned" || value === "adjourn") return "adjourned";
+  if (value === "disposed" || value === "closed") return "disposed";
+  if (value === "reserved" || value === "order_reserved") return "order_reserved";
+  if (value === "cause-list" || value === "causelist" || value === "awaiting") {
+    return "awaiting_cause_list";
+  }
+  if (value === "pending") return "next_date_pending";
+  if (value === "none" || value === "no_proceedings") return "no_proceedings";
+  return null;
+}
+
+function getNextDateStatus(outcomeType: OutcomeType, nextValue: string | null): NextDateStatus {
+  const lowered = nextValue?.toLowerCase() ?? "";
+  if (lowered.includes("pending")) return "pending";
+  if (lowered.includes("not given")) return "not_given";
+  if (lowered.includes("cause")) return "awaiting_cause_list";
+  if (nextValue) return "entered";
+  if (outcomeType === "awaiting_cause_list") return "awaiting_cause_list";
+  if (outcomeType === "disposed" || outcomeType === "order_reserved") return "not_required";
+  if (outcomeType === "next_date_pending") return "pending";
+  return "not_required";
 }
 
 function formatAvailabilityReply(input: {

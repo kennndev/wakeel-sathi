@@ -34,6 +34,7 @@ export default async function DiaryPage() {
   const chamberRows = (chambers as ChamberRow[] | null) ?? [];
   const activeOrganizationId = configuredOrganizationId || chamberRows[0]?.id;
   let hearings: HearingRow[] = [];
+  let missingNextDateCount = 0;
 
   if (activeOrganizationId) {
     const { data, error } = await supabase
@@ -51,6 +52,14 @@ export default async function DiaryPage() {
     }
 
     hearings = (data as HearingRow[] | null) ?? [];
+
+    const { count } = await supabase
+      .from("hearing_outcomes")
+      .select("id", { count: "exact", head: true })
+      .eq("organization_id", activeOrganizationId)
+      .in("next_date_status", ["pending", "not_given", "awaiting_cause_list"]);
+
+    missingNextDateCount = count ?? 0;
   }
 
   const upcomingHearings = hearings.filter((hearing) => hearing.status === "scheduled");
@@ -67,6 +76,7 @@ export default async function DiaryPage() {
         <div>
           <Link href="/setup">Setup</Link>
           <Link href="/diary">Diary</Link>
+          <Link href="/chamber/missing-next-dates">Missing Dates</Link>
         </div>
       </nav>
 
@@ -97,6 +107,12 @@ export default async function DiaryPage() {
             <span>Courts</span>
             <strong>{courts.size}</strong>
           </article>
+          <Link
+            href="/chamber/missing-next-dates"
+            className={missingNextDateCount ? "metric-link is-alert" : "metric-link"}
+          >
+            Missing next dates: {missingNextDateCount}
+          </Link>
         </div>
       </section>
 
@@ -172,6 +188,11 @@ export default async function DiaryPage() {
                         <dd>{single(hearing.appearing)?.full_name ?? "Not set"}</dd>
                       </div>
                     </dl>
+                    <div className="hearing-actions">
+                      <Link href={`/chamber/hearings/${hearing.id}/outcome`}>
+                        Update outcome
+                      </Link>
+                    </div>
                   </div>
                 </article>
               ))}

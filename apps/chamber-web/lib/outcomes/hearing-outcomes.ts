@@ -93,6 +93,8 @@ export async function createHearingOutcome(input: CreateHearingOutcomeInput) {
     })
     .eq("id", input.hearingId);
 
+  await dismissPendingHearingReminders(input.hearingId);
+
   await writeActivityLog({
     organizationId: input.organizationId,
     actorUserId: input.updatedBy ?? null,
@@ -526,6 +528,18 @@ async function findExistingNextHearing(input: {
   if (error) throw new Error(`Failed to check existing next hearing: ${error.message}`);
 
   return (data?.id as string | undefined) ?? null;
+}
+
+async function dismissPendingHearingReminders(hearingId: string) {
+  const { error } = await getSupabaseAdmin()
+    .from("reminders")
+    .update({ status: "dismissed" })
+    .eq("entity_type", "hearing")
+    .eq("entity_id", hearingId)
+    .eq("reminder_type", "hearing_one_day_before")
+    .eq("status", "pending");
+
+  if (error) throw new Error(`Failed to dismiss old hearing reminders: ${error.message}`);
 }
 
 async function getPhoneForUser(organizationId: string, userId: string) {

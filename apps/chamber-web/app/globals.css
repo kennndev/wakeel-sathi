@@ -688,6 +688,24 @@ th {
   padding: 1rem;
 }
 
+.history-block {
+  border-top: 1px solid var(--line);
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+}
+
+.hearing-list.is-history {
+  opacity: 0.82;
+}
+
+.hearing-card.is-muted {
+  background: rgba(232, 222, 202, 0.3);
+}
+
+.hearing-card.is-muted .date-tile {
+  background: #5c5447;
+}
+
 .date-tile {
   background: #1e1810;
   color: #fffaf0;

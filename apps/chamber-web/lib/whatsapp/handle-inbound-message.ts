@@ -35,6 +35,7 @@ type UserRow = {
 type MatterRow = {
   id: string;
   title: string;
+  case_number: string | null;
   court_id: string | null;
 };
 
@@ -190,6 +191,8 @@ export async function handleInboundWhatsappMessage(input: HandleInboundMessageIn
     body:
       `Saved in chamber diary.\n\n` +
       `Matter: ${matter.title}\n` +
+      `Case no: ${matter.case_number ?? "Not set"}\n` +
+      `Hearing ID: ${created.hearingId}\n` +
       `Court: ${court?.name ?? "Not specified"}\n` +
       `Date: ${formatDateForWhatsapp(parsed.date)}\n` +
       `Time: ${parsed.startTime ?? "Not specified"}\n` +
@@ -282,7 +285,7 @@ async function resolveMatter(input: {
 
   const { data: existing, error: findError } = await supabaseAdmin
     .from("matters")
-    .select("id,title,court_id")
+    .select("id,title,case_number,court_id")
     .eq("organization_id", input.organizationId)
     .ilike("title", `%${title}%`)
     .is("deleted_at", null)
@@ -302,7 +305,7 @@ async function resolveMatter(input: {
       priority: "normal",
       created_by: input.createdBy,
     })
-    .select("id,title,court_id")
+    .select("id,title,case_number,court_id")
     .single();
 
   if (createError) throw new Error(`Failed to create matter: ${createError.message}`);
@@ -368,6 +371,7 @@ async function notifySeniorOfConfirmedHearing(input: {
     body:
       `Hearing date confirmed.\n\n` +
       `Matter: ${input.matterTitle}\n` +
+      `Hearing ID: ${input.hearingId}\n` +
       `Court: ${input.courtName}\n` +
       `Date: ${formatDateForWhatsapp(input.hearingDate)}\n` +
       `Time: ${input.startTime ?? "Not specified"}\n\n` +
@@ -431,10 +435,16 @@ async function handleOutcomeWhatsappCommand(input: {
     return;
   }
 
-  const hearing = await findLatestHearingForMatterReference({
+  const openOutcome = await findOpenOutcomeForMatterReference({
     organizationId: input.organizationId,
     reference: parsed.matterReference,
   });
+  const hearing =
+    openOutcome?.hearing ??
+    (await findLatestHearingForMatterReference({
+      organizationId: input.organizationId,
+      reference: parsed.matterReference,
+    }));
 
   if (!hearing) {
     await sendWhatsappText({
@@ -442,7 +452,7 @@ async function handleOutcomeWhatsappCommand(input: {
       to: input.fromPhone,
       body:
         `Matter/hearing not found for "${parsed.matterReference}". ` +
-        `Use a case number or an exact matter title already saved in diary.`,
+        `Use a case number, exact matter title, short hearing ID, or full hearing ID already saved in diary.`,
       entityType: "whatsapp_inbound",
       entityId: input.senderUserId,
       recipientUserId: input.senderUserId,
@@ -585,15 +595,20 @@ function parseOutcomeWhatsappText(text: string):
       summary: string;
     }
   | { ok: false; error: string } {
-  const match = text.trim().match(/^outcome\s+(\S+)\s+(\S+)(.*)$/i);
+  const outcomeWords =
+    "adjourned|disposed|reserved|order_reserved|order-reserved|cause-list|cause_list|awaiting_cause_list|awaiting-cause-list|no_proceedings|no-proceedings|pending|other";
+  const match = text
+    .trim()
+    .match(new RegExp(`^outcome\\s+(.+?)\\s+(${outcomeWords})(.*)$`, "i"));
   if (!match) {
     return {
       ok: false,
-      error: "Use: OUTCOME matter-ref adjourned next: 12-05-2026 OR next: pending",
+      error:
+        'Use: OUTCOME "Matter title/case number/hearing ID" adjourned next: 12-05-2026 OR next: pending',
     };
   }
 
-  const matterReference = match[1];
+  const matterReference = match[1].trim().replace(/^["']|["']$/g, "");
   const outcomeWord = match[2].toLowerCase();
   const rest = match[3] ?? "";
   const outcomeType = normalizeOutcomeType(outcomeWord);
@@ -632,10 +647,10 @@ function parseNextDateWhatsappText(text: string):
   | { ok: false; error: string } {
   const match = text
     .trim()
-    .match(/^nextdate\s+(\S+)\s+(\d{4}-\d{2}-\d{2}|\d{1,2}[/-]\d{1,2}[/-]\d{4})(.*)$/i);
+    .match(/^nextdate\s+(.+?)\s+(\d{4}-\d{2}-\d{2}|\d{1,2}[/-]\d{1,2}[/-]\d{4})(.*)$/i);
 
   if (!match) {
-    return { ok: false, error: "Use: NEXTDATE matter-ref 12-05-2026 10am" };
+    return { ok: false, error: 'Use: NEXTDATE "Matter title/case number/hearing ID" 12-05-2026 10am' };
   }
 
   const nextDate = parseOutcomeDate(match[2]);
@@ -643,7 +658,7 @@ function parseNextDateWhatsappText(text: string):
 
   return {
     ok: true,
-    matterReference: match[1],
+    matterReference: match[1].trim().replace(/^["']|["']$/g, ""),
     nextDate,
     nextTime: parseOutcomeTime(match[3]?.trim()),
   };

@@ -9,7 +9,7 @@ type HearingRow = {
   start_time: string | null;
   purpose: string | null;
   status: string;
-  matters: { title: string } | { title: string }[] | null;
+  matters: { title: string; case_number: string | null } | Array<{ title: string; case_number: string | null }> | null;
   courts: { name: string } | { name: string }[] | null;
   senior: { full_name: string } | { full_name: string }[] | null;
   appearing: { full_name: string } | { full_name: string }[] | null;
@@ -40,7 +40,7 @@ export default async function DiaryPage() {
     const { data, error } = await supabase
       .from("hearings")
       .select(
-        "id,hearing_date,start_time,purpose,status,matters(title),courts(name),senior:senior_lawyer_id(full_name),appearing:appearing_lawyer_id(full_name)",
+        "id,hearing_date,start_time,purpose,status,matters(title,case_number),courts(name),senior:senior_lawyer_id(full_name),appearing:appearing_lawyer_id(full_name)",
       )
       .eq("organization_id", activeOrganizationId)
       .is("deleted_at", null)
@@ -63,6 +63,12 @@ export default async function DiaryPage() {
   }
 
   const upcomingHearings = hearings.filter((hearing) => hearing.status === "scheduled");
+  const activeHearings = hearings.filter((hearing) =>
+    ["scheduled", "pending_update"].includes(hearing.status),
+  );
+  const hearingHistory = hearings.filter(
+    (hearing) => !["scheduled", "pending_update"].includes(hearing.status),
+  );
   const courts = new Set(
     hearings.map((hearing) => single(hearing.courts)?.name).filter(Boolean),
   );
@@ -156,11 +162,11 @@ export default async function DiaryPage() {
               <p className="eyebrow">Schedule</p>
               <h2>Hearings</h2>
             </div>
-            <span>{hearings.length ? `${hearings.length} saved` : "No saved dates"}</span>
+            <span>{activeHearings.length ? `${activeHearings.length} active` : "No active dates"}</span>
           </div>
-          {hearings.length ? (
+          {activeHearings.length ? (
             <div className="hearing-list">
-              {hearings.map((hearing) => (
+              {activeHearings.map((hearing) => (
                 <article key={hearing.id} className="hearing-card">
                   <div className="date-tile">
                     <span>{formatMonth(hearing.hearing_date)}</span>
@@ -171,6 +177,10 @@ export default async function DiaryPage() {
                       <div>
                         <h3>{single(hearing.matters)?.title ?? "Unknown matter"}</h3>
                         <p>{single(hearing.courts)?.name ?? "Court not specified"}</p>
+                        <small>
+                          Case: {single(hearing.matters)?.case_number ?? "not set"} | Hearing:{" "}
+                          {shortId(hearing.id)}
+                        </small>
                       </div>
                       <span className="status-pill">{hearing.status}</span>
                     </div>
@@ -207,6 +217,54 @@ export default async function DiaryPage() {
               </code>
             </div>
           )}
+          {hearingHistory.length ? (
+            <section className="history-block">
+              <div className="panel-heading split">
+                <div>
+                  <p className="eyebrow">History</p>
+                  <h2>Previous hearings</h2>
+                </div>
+                <span>{hearingHistory.length} recorded</span>
+              </div>
+              <div className="hearing-list is-history">
+                {hearingHistory.map((hearing) => (
+                  <article key={hearing.id} className="hearing-card is-muted">
+                    <div className="date-tile">
+                      <span>{formatMonth(hearing.hearing_date)}</span>
+                      <strong>{formatDay(hearing.hearing_date)}</strong>
+                    </div>
+                    <div className="hearing-main">
+                      <div className="hearing-title-row">
+                        <div>
+                          <h3>{single(hearing.matters)?.title ?? "Unknown matter"}</h3>
+                          <p>{single(hearing.courts)?.name ?? "Court not specified"}</p>
+                          <small>
+                            Case: {single(hearing.matters)?.case_number ?? "not set"} | Hearing:{" "}
+                            {shortId(hearing.id)}
+                          </small>
+                        </div>
+                        <span className="status-pill">{hearing.status}</span>
+                      </div>
+                      <dl>
+                        <div>
+                          <dt>Time</dt>
+                          <dd>{hearing.start_time ?? "Not set"}</dd>
+                        </div>
+                        <div>
+                          <dt>Senior</dt>
+                          <dd>{single(hearing.senior)?.full_name ?? "Not set"}</dd>
+                        </div>
+                        <div>
+                          <dt>Appearing</dt>
+                          <dd>{single(hearing.appearing)?.full_name ?? "Not set"}</dd>
+                        </div>
+                      </dl>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </section>
+          ) : null}
         </section>
       </section>
     </main>
@@ -224,4 +282,8 @@ function formatMonth(date: string): string {
 
 function formatDay(date: string): string {
   return new Intl.DateTimeFormat("en", { day: "2-digit" }).format(new Date(`${date}T00:00:00`));
+}
+
+function shortId(value: string): string {
+  return value.slice(0, 8);
 }

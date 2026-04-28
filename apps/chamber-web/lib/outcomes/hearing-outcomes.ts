@@ -56,7 +56,7 @@ type HearingRow = {
   start_time: string | null;
   senior_lawyer_id: string | null;
   appearing_lawyer_id: string | null;
-  matters: { title: string } | { title: string }[] | null;
+  matters: { title: string; case_number?: string | null } | Array<{ title: string; case_number?: string | null }> | null;
   courts: { name: string } | { name: string }[] | null;
 };
 
@@ -135,21 +135,34 @@ export async function addNextDateFromOutcome(input: AddNextDateInput) {
     throw new Error("Senior lawyer is required to create next hearing.");
   }
 
-  const nextHearing = await createConfirmedHearing({
+  const existingNextHearingId = await findExistingNextHearing({
     organizationId: input.organizationId,
     matterId: input.matterId,
-    courtId: input.courtId ?? null,
     hearingDate: input.hearingDate,
     startTime: input.startTime ?? null,
-    endTime: input.endTime ?? null,
-    seniorLawyerId: input.seniorLawyerId,
-    appearingLawyerId: input.appearingLawyerId ?? null,
-    createdBy: input.createdBy ?? null,
-    purpose: input.purpose ?? "Next hearing",
   });
 
-  if (!nextHearing.ok) {
-    throw new Error(nextHearing.error);
+  let nextHearingId = existingNextHearingId;
+
+  if (!nextHearingId) {
+    const nextHearing = await createConfirmedHearing({
+      organizationId: input.organizationId,
+      matterId: input.matterId,
+      courtId: input.courtId ?? null,
+      hearingDate: input.hearingDate,
+      startTime: input.startTime ?? null,
+      endTime: input.endTime ?? null,
+      seniorLawyerId: input.seniorLawyerId,
+      appearingLawyerId: input.appearingLawyerId ?? null,
+      createdBy: input.createdBy ?? null,
+      purpose: input.purpose ?? "Next hearing",
+    });
+
+    if (!nextHearing.ok) {
+      throw new Error(nextHearing.error);
+    }
+
+    nextHearingId = nextHearing.hearingId;
   }
 
   await createHearingOutcome({
@@ -161,10 +174,10 @@ export async function addNextDateFromOutcome(input: AddNextDateInput) {
     outcomeType: "adjourned",
     outcomeSummary: `Next date fixed for ${formatDateForWhatsapp(input.hearingDate)}.`,
     nextDateStatus: "entered",
-    nextHearingId: nextHearing.hearingId,
+    nextHearingId,
   });
 
-  return nextHearing.hearingId;
+  return nextHearingId;
 }
 
 export async function getMissingNextDateQueue(organizationId?: string | null) {
@@ -194,7 +207,7 @@ export async function sendMissingNextDateReminder(input: {
   const { data, error } = await supabase
     .from("hearing_outcomes")
     .select(
-      "id,organization_id,hearing_id,matter_id,hearings!hearing_outcomes_hearing_id_fkey(hearing_date,appearing_lawyer_id,matters(title),courts(name),appearing:appearing_lawyer_id(full_name,phone))",
+      "id,organization_id,hearing_id,matter_id,hearings!hearing_outcomes_hearing_id_fkey(id,hearing_date,appearing_lawyer_id,matters(title,case_number),courts(name),appearing:appearing_lawyer_id(full_name,phone))",
     )
     .eq("id", input.outcomeId)
     .maybeSingle();
@@ -221,10 +234,13 @@ export async function sendMissingNextDateReminder(input: {
     body:
       `Outcome update needed.\n\n` +
       `Matter: ${single(hearing?.matters ?? null)?.title ?? "Unknown"}\n` +
+      `Case no: ${single(hearing?.matters ?? null)?.case_number ?? "Not set"}\n` +
+      `Hearing ID: ${hearing?.id ?? "Unknown"}\n` +
       `Court: ${single(hearing?.courts ?? null)?.name ?? "Not specified"}\n` +
       `Last hearing: ${hearing?.hearing_date ?? "Unknown"}\n\n` +
       `If adjourned, reply:\n` +
       `OUTCOME ${single(hearing?.matters ?? null)?.title ?? "matter"} adjourned next: DD-MM-YYYY\n\n` +
+      `You can also use the case number, short hearing ID, or full hearing ID instead of the matter title.\n\n` +
       `If next date is not known, reply:\n` +
       `OUTCOME ${single(hearing?.matters ?? null)?.title ?? "matter"} adjourned next: pending`,
     entityType: "hearing_outcome",
@@ -251,7 +267,7 @@ export async function detectMissingOutcomesAndAskJuniors() {
   const { data, error } = await supabase
     .from("hearings")
     .select(
-      "id,organization_id,matter_id,court_id,hearing_date,start_time,senior_lawyer_id,appearing_lawyer_id,matters(title),courts(name)",
+      "id,organization_id,matter_id,court_id,hearing_date,start_time,senior_lawyer_id,appearing_lawyer_id,matters(title,case_number),courts(name)",
     )
     .lte("hearing_date", today)
     .eq("outcome_required", true)
@@ -329,13 +345,16 @@ export async function findLatestHearingForMatterReference(input: {
   organizationId: string;
   reference: string;
 }) {
+  const directHearing = await findHearingByReference(input);
+  if (directHearing) return directHearing;
+
   const matter = await findMatterByReference(input);
   if (!matter) return null;
 
   const { data, error } = await getSupabaseAdmin()
     .from("hearings")
     .select(
-      "id,organization_id,matter_id,court_id,hearing_date,start_time,senior_lawyer_id,appearing_lawyer_id,matters(title),courts(name)",
+      "id,organization_id,matter_id,court_id,hearing_date,start_time,senior_lawyer_id,appearing_lawyer_id,matters(title,case_number),courts(name)",
     )
     .eq("organization_id", input.organizationId)
     .eq("matter_id", matter.id)
@@ -353,13 +372,36 @@ export async function findOpenOutcomeForMatterReference(input: {
   organizationId: string;
   reference: string;
 }) {
+  const directHearing = await findHearingByReference(input);
+  if (directHearing) {
+    const { data, error } = await getSupabaseAdmin()
+      .from("hearing_outcomes")
+      .select(
+        "id,organization_id,hearing_id,matter_id,hearings!hearing_outcomes_hearing_id_fkey(id,organization_id,matter_id,court_id,hearing_date,start_time,senior_lawyer_id,appearing_lawyer_id,matters(title,case_number),courts(name))",
+      )
+      .eq("organization_id", input.organizationId)
+      .eq("hearing_id", directHearing.id)
+      .in("next_date_status", ["pending", "not_given", "awaiting_cause_list"])
+      .limit(1)
+      .maybeSingle();
+
+    if (error) throw new Error(`Failed to find missing next-date item: ${error.message}`);
+    if (!data) return null;
+
+    const row = data as unknown as { id: string; hearings: HearingRow | HearingRow[] | null };
+    return {
+      outcomeId: row.id,
+      hearing: single(row.hearings),
+    };
+  }
+
   const matter = await findMatterByReference(input);
   if (!matter) return null;
 
   const { data, error } = await getSupabaseAdmin()
     .from("hearing_outcomes")
     .select(
-      "id,organization_id,hearing_id,matter_id,hearings!hearing_outcomes_hearing_id_fkey(id,organization_id,matter_id,court_id,hearing_date,start_time,senior_lawyer_id,appearing_lawyer_id,matters(title),courts(name))",
+      "id,organization_id,hearing_id,matter_id,hearings!hearing_outcomes_hearing_id_fkey(id,organization_id,matter_id,court_id,hearing_date,start_time,senior_lawyer_id,appearing_lawyer_id,matters(title,case_number),courts(name))",
     )
     .eq("organization_id", input.organizationId)
     .eq("matter_id", matter.id)
@@ -387,7 +429,33 @@ export function parseOutcomeTime(value?: string | null): string | null {
 }
 
 async function findMatterByReference(input: { organizationId: string; reference: string }) {
-  const ref = input.reference.trim();
+  const ref = normalizeReference(input.reference);
+  const supabase = getSupabaseAdmin();
+
+  const { data: exactCase, error: exactCaseError } = await supabase
+    .from("matters")
+    .select("id,title,case_number")
+    .eq("organization_id", input.organizationId)
+    .is("deleted_at", null)
+    .ilike("case_number", ref)
+    .limit(1)
+    .maybeSingle();
+
+  if (exactCaseError) throw new Error(`Failed to resolve matter reference: ${exactCaseError.message}`);
+  if (exactCase) return exactCase as { id: string; title: string; case_number: string | null };
+
+  const { data: exactTitle, error: exactTitleError } = await supabase
+    .from("matters")
+    .select("id,title,case_number")
+    .eq("organization_id", input.organizationId)
+    .is("deleted_at", null)
+    .ilike("title", ref)
+    .limit(1)
+    .maybeSingle();
+
+  if (exactTitleError) throw new Error(`Failed to resolve matter reference: ${exactTitleError.message}`);
+  if (exactTitle) return exactTitle as { id: string; title: string; case_number: string | null };
+
   const { data, error } = await getSupabaseAdmin()
     .from("matters")
     .select("id,title,case_number")
@@ -399,6 +467,65 @@ async function findMatterByReference(input: { organizationId: string; reference:
 
   if (error) throw new Error(`Failed to resolve matter reference: ${error.message}`);
   return data as { id: string; title: string; case_number: string | null } | null;
+}
+
+async function findHearingByReference(input: { organizationId: string; reference: string }) {
+  const ref = normalizeReference(input.reference);
+  const select =
+    "id,organization_id,matter_id,court_id,hearing_date,start_time,senior_lawyer_id,appearing_lawyer_id,matters(title,case_number),courts(name)";
+
+  if (!isUuid(ref)) {
+    if (!/^[0-9a-f-]{8,}$/i.test(ref)) return null;
+
+    const { data, error } = await getSupabaseAdmin()
+      .from("hearings")
+      .select(select)
+      .eq("organization_id", input.organizationId)
+      .is("deleted_at", null)
+      .limit(1000);
+
+    if (error) throw new Error(`Failed to resolve hearing reference: ${error.message}`);
+
+    const matches = ((data as HearingRow[] | null) ?? []).filter((hearing) =>
+      hearing.id.toLowerCase().startsWith(ref.toLowerCase()),
+    );
+
+    return matches.length === 1 ? matches[0] : null;
+  }
+
+  const { data, error } = await getSupabaseAdmin()
+    .from("hearings")
+    .select(select)
+    .eq("organization_id", input.organizationId)
+    .eq("id", ref)
+    .is("deleted_at", null)
+    .maybeSingle();
+
+  if (error) throw new Error(`Failed to resolve hearing reference: ${error.message}`);
+  return data as HearingRow | null;
+}
+
+async function findExistingNextHearing(input: {
+  organizationId: string;
+  matterId: string;
+  hearingDate: string;
+  startTime?: string | null;
+}) {
+  let query = getSupabaseAdmin()
+    .from("hearings")
+    .select("id")
+    .eq("organization_id", input.organizationId)
+    .eq("matter_id", input.matterId)
+    .eq("hearing_date", input.hearingDate)
+    .is("deleted_at", null)
+    .in("status", ["scheduled", "pending_update"]);
+
+  query = input.startTime ? query.eq("start_time", input.startTime) : query.is("start_time", null);
+
+  const { data, error } = await query.limit(1).maybeSingle();
+  if (error) throw new Error(`Failed to check existing next hearing: ${error.message}`);
+
+  return (data?.id as string | undefined) ?? null;
 }
 
 async function getPhoneForUser(organizationId: string, userId: string) {
@@ -432,6 +559,16 @@ function getHearingStatusForOutcome(outcomeType: OutcomeType, nextDateStatus: Ne
 
 function escapeLike(value: string) {
   return value.replaceAll("%", "\\%").replaceAll("_", "\\_").replaceAll(",", "\\,");
+}
+
+function normalizeReference(value: string) {
+  return value.trim().replace(/^["']|["']$/g, "");
+}
+
+function isUuid(value: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    value,
+  );
 }
 
 function single<T>(value: T | T[] | null | undefined): T | null {

@@ -210,11 +210,8 @@ export default async function DiaryPage() {
           ) : (
             <div className="empty-state">
               <strong>No hearings saved yet.</strong>
-              <p>Send a SAVE command through WhatsApp after setup.</p>
-              <code>
-                SAVE 12-05-2026 10am senior: Senior Lawyer matter: Cheque case court:
-                Banking Court Lahore
-              </code>
+              <p>Send SAVE on WhatsApp. The bot will ask the details one by one.</p>
+              <code>SAVE</code>
             </div>
           )}
           {hearingHistory.length ? (

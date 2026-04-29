@@ -13,6 +13,7 @@ import {
   type OutcomeType,
 } from "../outcomes/hearing-outcomes";
 import { formatDateForWhatsapp } from "../utils/date";
+import { normalizeDate, normalizeTime } from "../utils/date";
 import { parseInboundCommand } from "./parse-inbound-command";
 import { sendWhatsappText } from "./send-whatsapp-message";
 
@@ -44,6 +45,22 @@ type CourtRow = {
   name: string;
 };
 
+type ConversationFlow = "check_slot" | "save_date";
+type ConversationStep = "date" | "time" | "matter" | "court" | "senior" | "confirm_save";
+type ConversationPayload = {
+  date?: string;
+  startTime?: string | null;
+  matterText?: string | null;
+  courtText?: string | null;
+  seniorLawyerName?: string | null;
+  checkedAvailable?: boolean;
+};
+type ConversationState = {
+  flow: ConversationFlow;
+  step: ConversationStep;
+  payload_json: ConversationPayload;
+};
+
 export async function handleInboundWhatsappMessage(input: HandleInboundMessageInput) {
   const sender = await findWhatsappSender(input.fromPhone);
 
@@ -56,6 +73,20 @@ export async function handleInboundWhatsappMessage(input: HandleInboundMessageIn
       body: "Your WhatsApp number is not registered with this chamber. Ask admin to add your number first.",
       entityType: "whatsapp_inbound",
       entityId: crypto.randomUUID(),
+    });
+    return;
+  }
+
+  const text = input.text.trim();
+  if (isCancelCommand(text)) {
+    await clearConversationState(sender.organization_id, sender.user_id, input.fromPhone);
+    await sendWhatsappText({
+      organizationId: sender.organization_id,
+      to: input.fromPhone,
+      body: "Okay, cancelled.",
+      entityType: "whatsapp_inbound",
+      entityId: sender.user_id,
+      recipientUserId: sender.user_id,
     });
     return;
   }
@@ -80,13 +111,54 @@ export async function handleInboundWhatsappMessage(input: HandleInboundMessageIn
     return;
   }
 
+  const existingState = await getConversationState({
+    organizationId: sender.organization_id,
+    userId: sender.user_id,
+    phone: input.fromPhone,
+  });
+
+  if (existingState) {
+    await handleGuidedConversation({
+      organizationId: sender.organization_id,
+      senderUserId: sender.user_id,
+      fromPhone: input.fromPhone,
+      text,
+      state: existingState,
+    });
+    return;
+  }
+
+  const quickFlow = getQuickFlow(text);
+  if (quickFlow) {
+    await saveConversationState({
+      organizationId: sender.organization_id,
+      userId: sender.user_id,
+      phone: input.fromPhone,
+      flow: quickFlow,
+      step: "date",
+      payload: {},
+    });
+    await sendWhatsappText({
+      organizationId: sender.organization_id,
+      to: input.fromPhone,
+      body:
+        quickFlow === "check_slot"
+          ? "Sure. What date should I check? Example: 12-05-2026"
+          : "Okay. What date should I save? Example: 12-05-2026",
+      entityType: "whatsapp_inbound",
+      entityId: sender.user_id,
+      recipientUserId: sender.user_id,
+    });
+    return;
+  }
+
   const parsed = parseInboundCommand(input.text);
 
   if (!parsed.ok) {
     await sendWhatsappText({
       organizationId: sender.organization_id,
       to: input.fromPhone,
-      body: parsed.error,
+      body: "Send CHECK to check a date, or SAVE to add a date. I’ll ask the details one by one.",
       entityType: "whatsapp_inbound",
       entityId: sender.user_id,
       recipientUserId: sender.user_id,
@@ -170,7 +242,7 @@ export async function handleInboundWhatsappMessage(input: HandleInboundMessageIn
     await sendWhatsappText({
       organizationId: sender.organization_id,
       to: input.fromPhone,
-      body: `Date NOT saved.\n\n${formatAvailabilityReply({
+      body: `I did not save it. ${formatAvailabilityReply({
         date: parsed.date,
         time: parsed.startTime,
         seniorName: senior.full_name,
@@ -189,17 +261,14 @@ export async function handleInboundWhatsappMessage(input: HandleInboundMessageIn
     organizationId: sender.organization_id,
     to: input.fromPhone,
     body:
-      `Saved in chamber diary.\n\n` +
-      `Matter: ${matter.title}\n` +
-      `Case no: ${matter.case_number ?? "Not set"}\n` +
-      `Hearing ID: ${created.hearingId}\n` +
-      `Court: ${court?.name ?? "Not specified"}\n` +
-      `Date: ${formatDateForWhatsapp(parsed.date)}\n` +
-      `Time: ${parsed.startTime ?? "Not specified"}\n` +
-      `Senior: ${senior.full_name}\n\n` +
+      `Saved.\n\n` +
+      `${matter.title}\n` +
+      `${formatDateForWhatsapp(parsed.date)}${parsed.startTime ? ` at ${parsed.startTime}` : ""}\n` +
+      `${court?.name ?? "Court not specified"}\n` +
+      `Senior: ${senior.full_name}\n` +
       (created.availability.status === "soft_warning"
-        ? `Warning: ${created.availability.reason}`
-        : "No clash found."),
+        ? `\nNote: ${created.availability.reason}`
+        : ""),
     entityType: "hearing",
     entityId: created.hearingId,
     recipientUserId: sender.user_id,
@@ -215,6 +284,251 @@ export async function handleInboundWhatsappMessage(input: HandleInboundMessageIn
     hearingDate: parsed.date,
     startTime: parsed.startTime,
   });
+}
+
+async function handleGuidedConversation(input: {
+  organizationId: string;
+  senderUserId: string;
+  fromPhone: string;
+  text: string;
+  state: ConversationState;
+}) {
+  const payload = input.state.payload_json ?? {};
+
+  if (input.state.step === "date") {
+    const date = parseLooseDate(input.text);
+    if (!date) {
+      await reply(input, "Please send the date like 12-05-2026.");
+      return;
+    }
+    await saveConversationState({
+      organizationId: input.organizationId,
+      userId: input.senderUserId,
+      phone: input.fromPhone,
+      flow: input.state.flow,
+      step: "time",
+      payload: { ...payload, date },
+    });
+    await reply(input, "What time? Example: 10am. If no time, reply SKIP.");
+    return;
+  }
+
+  if (input.state.step === "time") {
+    const startTime = isSkip(input.text) ? null : parseLooseTime(input.text);
+    if (!isSkip(input.text) && !startTime) {
+      await reply(input, "Please send time like 10am, or reply SKIP.");
+      return;
+    }
+
+    if (input.state.flow === "check_slot") {
+      await runCheckOnlyFlow({
+        organizationId: input.organizationId,
+        senderUserId: input.senderUserId,
+        fromPhone: input.fromPhone,
+        payload: { ...payload, startTime },
+      });
+      return;
+    }
+
+    await saveConversationState({
+      organizationId: input.organizationId,
+      userId: input.senderUserId,
+      phone: input.fromPhone,
+      flow: input.state.flow,
+      step: "matter",
+      payload: { ...payload, startTime },
+    });
+    await reply(input, "Matter name or case number?");
+    return;
+  }
+
+  if (input.state.step === "matter") {
+    await saveConversationState({
+      organizationId: input.organizationId,
+      userId: input.senderUserId,
+      phone: input.fromPhone,
+      flow: input.state.flow,
+      step: "court",
+      payload: { ...payload, matterText: input.text.trim() },
+    });
+    await reply(input, "Which court? If not needed, reply SKIP.");
+    return;
+  }
+
+  if (input.state.step === "court") {
+    await saveConversationState({
+      organizationId: input.organizationId,
+      userId: input.senderUserId,
+      phone: input.fromPhone,
+      flow: input.state.flow,
+      step: "senior",
+      payload: { ...payload, courtText: isSkip(input.text) ? null : input.text.trim() },
+    });
+    await reply(input, "Senior lawyer name? Reply SKIP to use the default senior.");
+    return;
+  }
+
+  if (input.state.step === "senior") {
+    const finalPayload = {
+      ...payload,
+      seniorLawyerName: isSkip(input.text) ? null : input.text.trim(),
+    };
+    await runGuidedFlow({
+      organizationId: input.organizationId,
+      senderUserId: input.senderUserId,
+      fromPhone: input.fromPhone,
+      flow: input.state.flow,
+      payload: finalPayload,
+    });
+  }
+}
+
+async function runGuidedFlow(input: {
+  organizationId: string;
+  senderUserId: string;
+  fromPhone: string;
+  flow: ConversationFlow;
+  payload: ConversationPayload;
+}) {
+  if (!input.payload.date) {
+    await reply(input, "Date is missing. Send CHECK or SAVE to start again.");
+    return;
+  }
+
+  const senior = await resolveSeniorLawyer({
+    organizationId: input.organizationId,
+    seniorLawyerName: input.payload.seniorLawyerName,
+  });
+
+  if (!senior) {
+    await reply(input, "I could not find that senior lawyer. Send CHECK or SAVE and try again.");
+    await clearConversationState(input.organizationId, input.senderUserId, input.fromPhone);
+    return;
+  }
+
+  const matter = await resolveMatter({
+    organizationId: input.organizationId,
+    matterText: input.payload.matterText,
+    createdBy: input.senderUserId,
+  });
+  const court = await resolveCourt({
+    organizationId: input.organizationId,
+    courtText: input.payload.courtText,
+  });
+
+  const created = await createConfirmedHearing({
+    organizationId: input.organizationId,
+    matterId: matter.id,
+    courtId: court?.id ?? matter.court_id ?? null,
+    hearingDate: input.payload.date,
+    startTime: input.payload.startTime,
+    seniorLawyerId: senior.id,
+    appearingLawyerId: input.senderUserId,
+    createdBy: input.senderUserId,
+    purpose: "Next hearing confirmed from court",
+  });
+
+  if (!created.ok) {
+    await reply(input, `I did not save it. ${formatAvailabilityReply({
+      date: input.payload.date,
+      time: input.payload.startTime,
+      seniorName: senior.full_name,
+      matterTitle: matter.title,
+      courtName: court?.name ?? "Court not specified",
+      availability: created.availability,
+    })}`);
+    await clearConversationState(input.organizationId, input.senderUserId, input.fromPhone);
+    return;
+  }
+
+  await reply(
+    input,
+    `Saved.\n\n${matter.title}\n${formatDateForWhatsapp(input.payload.date)}${
+      input.payload.startTime ? ` at ${input.payload.startTime}` : ""
+    }\n${court?.name ?? "Court not specified"}\nSenior: ${senior.full_name}`,
+  );
+
+  await notifySeniorOfConfirmedHearing({
+    organizationId: input.organizationId,
+    senior,
+    senderUserId: input.senderUserId,
+    hearingId: created.hearingId,
+    matterTitle: matter.title,
+    courtName: court?.name ?? "Court not specified",
+    hearingDate: input.payload.date,
+    startTime: input.payload.startTime,
+  });
+
+  await clearConversationState(input.organizationId, input.senderUserId, input.fromPhone);
+}
+
+async function runCheckOnlyFlow(input: {
+  organizationId: string;
+  senderUserId: string;
+  fromPhone: string;
+  payload: ConversationPayload;
+}) {
+  if (!input.payload.date) {
+    await reply(input, "Date is missing. Send CHECK to start again.");
+    return;
+  }
+
+  const senior = await resolveSeniorLawyer({
+    organizationId: input.organizationId,
+    seniorLawyerName: null,
+  });
+
+  if (!senior) {
+    await reply(input, "I could not find the senior lawyer in setup.");
+    await clearConversationState(input.organizationId, input.senderUserId, input.fromPhone);
+    return;
+  }
+
+  const availability = await checkAvailability({
+    organizationId: input.organizationId,
+    seniorLawyerId: senior.id,
+    appearingLawyerId: input.senderUserId,
+    date: input.payload.date,
+    startTime: input.payload.startTime,
+    endTime: null,
+    courtId: null,
+    matterId: null,
+  });
+
+  if (!availability.isAvailable) {
+    await reply(
+      input,
+      formatQuickAvailabilityReply({
+        date: input.payload.date,
+        time: input.payload.startTime,
+        availability,
+      }),
+    );
+    await clearConversationState(input.organizationId, input.senderUserId, input.fromPhone);
+    return;
+  }
+
+  await saveConversationState({
+    organizationId: input.organizationId,
+    userId: input.senderUserId,
+    phone: input.fromPhone,
+    flow: "save_date",
+    step: "matter",
+    payload: {
+      date: input.payload.date,
+      startTime: input.payload.startTime,
+      checkedAvailable: true,
+    },
+  });
+
+  await reply(
+    input,
+    `${formatQuickAvailabilityReply({
+      date: input.payload.date,
+      time: input.payload.startTime,
+      availability,
+    })}\n\nIf you want to save it, send the matter name or case number now. Otherwise send CANCEL.`,
+  );
 }
 
 async function findWhatsappSender(phone: string): Promise<WhatsappContactRow | null> {
@@ -369,13 +683,10 @@ async function notifySeniorOfConfirmedHearing(input: {
     organizationId: input.organizationId,
     to: phone,
     body:
-      `Hearing date confirmed.\n\n` +
-      `Matter: ${input.matterTitle}\n` +
-      `Hearing ID: ${input.hearingId}\n` +
-      `Court: ${input.courtName}\n` +
-      `Date: ${formatDateForWhatsapp(input.hearingDate)}\n` +
-      `Time: ${input.startTime ?? "Not specified"}\n\n` +
-      `A reminder will be sent one day before the hearing.`,
+      `New date noted.\n\n` +
+      `${input.matterTitle}\n` +
+      `${formatDateForWhatsapp(input.hearingDate)}${input.startTime ? ` at ${input.startTime}` : ""}\n` +
+      `${input.courtName}`,
     entityType: "hearing",
     entityId: input.hearingId,
     recipientUserId: input.senior.id,
@@ -413,6 +724,82 @@ async function getWhatsappPhoneForUser(input: {
   }
 
   return (user?.phone as string | undefined) ?? null;
+}
+
+async function getConversationState(input: {
+  organizationId: string;
+  userId: string;
+  phone: string;
+}): Promise<ConversationState | null> {
+  const { data, error } = await getSupabaseAdmin()
+    .from("whatsapp_conversation_states")
+    .select("flow,step,payload_json,expires_at")
+    .eq("organization_id", input.organizationId)
+    .eq("user_id", input.userId)
+    .eq("phone", normalizeWhatsappPhone(input.phone))
+    .gt("expires_at", new Date().toISOString())
+    .maybeSingle();
+
+  if (error) throw new Error(`Failed to load WhatsApp conversation: ${error.message}`);
+  if (!data) return null;
+
+  return {
+    flow: data.flow as ConversationFlow,
+    step: data.step as ConversationStep,
+    payload_json: (data.payload_json as ConversationPayload | null) ?? {},
+  };
+}
+
+async function saveConversationState(input: {
+  organizationId: string;
+  userId: string;
+  phone: string;
+  flow: ConversationFlow;
+  step: ConversationStep;
+  payload: ConversationPayload;
+}) {
+  const { error } = await getSupabaseAdmin()
+    .from("whatsapp_conversation_states")
+    .upsert(
+      {
+        organization_id: input.organizationId,
+        user_id: input.userId,
+        phone: normalizeWhatsappPhone(input.phone),
+        flow: input.flow,
+        step: input.step,
+        payload_json: input.payload,
+        expires_at: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "organization_id,user_id,phone" },
+    );
+
+  if (error) throw new Error(`Failed to save WhatsApp conversation: ${error.message}`);
+}
+
+async function clearConversationState(organizationId: string, userId: string, phone: string) {
+  const { error } = await getSupabaseAdmin()
+    .from("whatsapp_conversation_states")
+    .delete()
+    .eq("organization_id", organizationId)
+    .eq("user_id", userId)
+    .eq("phone", normalizeWhatsappPhone(phone));
+
+  if (error) throw new Error(`Failed to clear WhatsApp conversation: ${error.message}`);
+}
+
+async function reply(
+  input: { organizationId: string; senderUserId: string; fromPhone: string },
+  body: string,
+) {
+  await sendWhatsappText({
+    organizationId: input.organizationId,
+    to: input.fromPhone,
+    body,
+    entityType: "whatsapp_inbound",
+    entityId: input.senderUserId,
+    recipientUserId: input.senderUserId,
+  });
 }
 
 async function handleOutcomeWhatsappCommand(input: {
@@ -584,6 +971,33 @@ function isNextDateCommand(text: string) {
   return text.trim().toLowerCase().startsWith("nextdate ");
 }
 
+function getQuickFlow(text: string): ConversationFlow | null {
+  const lowered = text.trim().toLowerCase();
+  if (["check", "check date", "check slot", "slot"].includes(lowered)) return "check_slot";
+  if (["save", "save date", "add date", "add hearing"].includes(lowered)) return "save_date";
+  if (lowered === "1") return "check_slot";
+  if (lowered === "2") return "save_date";
+  return null;
+}
+
+function isCancelCommand(text: string) {
+  return ["cancel", "stop", "reset"].includes(text.trim().toLowerCase());
+}
+
+function isSkip(text: string) {
+  return ["skip", "no", "none", "-"].includes(text.trim().toLowerCase());
+}
+
+function parseLooseDate(text: string): string | null {
+  const match = text.match(/(\d{4}-\d{2}-\d{2}|\d{1,2}[/-]\d{1,2}[/-]\d{4})/);
+  return match ? normalizeDate(match[1]) : null;
+}
+
+function parseLooseTime(text: string): string | null {
+  const match = text.match(/(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)/i);
+  return match ? normalizeTime(match[1]) : null;
+}
+
 function parseOutcomeWhatsappText(text: string):
   | {
       ok: true;
@@ -702,34 +1116,51 @@ function formatAvailabilityReply(input: {
   };
 }): string {
   const statusLine = input.availability.isAvailable
-    ? "YES - slot is available."
-    : "NO - slot has a clash.";
-  const warningLine =
-    input.availability.status === "soft_warning" ? "Available with warning." : "";
+    ? "Looks clear."
+    : "There is a clash.";
+  const warningLine = input.availability.status === "soft_warning" ? input.availability.reason : "";
   const conflicts = input.availability.conflicts
-    .slice(0, 3)
-    .map((conflict, index) => `${index + 1}. ${conflict.reason}`)
+    .slice(0, 2)
+    .map((conflict) => conflict.reason)
     .join("\n");
 
   return [
     statusLine,
-    warningLine,
     "",
-    `Matter: ${input.matterTitle}`,
-    `Court: ${input.courtName}`,
-    `Date: ${formatDateForWhatsapp(input.date)}`,
-    `Time: ${input.time ?? "Not specified"}`,
+    `${input.matterTitle}`,
+    `${formatDateForWhatsapp(input.date)}${input.time ? ` at ${input.time}` : ""}`,
+    `${input.courtName}`,
     `Senior: ${input.seniorName}`,
-    "",
-    `Reason: ${input.availability.reason}`,
-    conflicts ? `\nConflicts/warnings:\n${conflicts}` : "",
+    warningLine ? `\nNote: ${warningLine}` : "",
+    conflicts ? `\n${conflicts}` : "",
     "",
     input.availability.isAvailable
-      ? "If court confirms this date, reply with SAVE and the same details."
-      : "Do not take this date unless senior lawyer overrides it.",
+      ? "If court confirms it, send SAVE and I’ll add it."
+      : "Better confirm with senior before taking this date.",
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+function formatQuickAvailabilityReply(input: {
+  date: string;
+  time?: string | null;
+  availability: {
+    isAvailable: boolean;
+    reason: string;
+    conflicts: Array<{ severity: string; reason: string }>;
+  };
+}) {
+  if (input.availability.isAvailable) {
+    return `Looks clear for ${formatDateForWhatsapp(input.date)}${
+      input.time ? ` at ${input.time}` : ""
+    }.`;
+  }
+
+  const conflict = input.availability.conflicts[0]?.reason ?? input.availability.reason;
+  return `There is a clash on ${formatDateForWhatsapp(input.date)}${
+    input.time ? ` at ${input.time}` : ""
+  }.\n${conflict}`;
 }
 
 function normalizeWhatsappPhone(phone: string): string {

@@ -171,11 +171,8 @@ export default async function SetupPage() {
             <li>Marks WhatsApp opt-in for MVP testing.</li>
           </ul>
           <div className="command-preview">
-            <span>Test command</span>
-            <code>
-              CHECK 12-05-2026 10am senior: Senior Lawyer matter: Cheque case court:
-              Banking Court Lahore
-            </code>
+            <span>WhatsApp test</span>
+            <code>Send CHECK to check date/time only. Send SAVE to add the matter and court.</code>
           </div>
         </aside>
       </section>

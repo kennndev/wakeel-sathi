@@ -20,6 +20,12 @@ type HearingRow = {
   appearing_lawyer_id: string | null;
 };
 
+type CourtRow = {
+  id: string;
+  name: string;
+  city: string | null;
+};
+
 type AvailabilityBlockRow = {
   id: string;
   user_id: string;
@@ -65,6 +71,14 @@ export async function checkAvailability(
     throw new Error(`Failed to load availability blocks: ${blocksError.message}`);
   }
 
+  const hearingRows = (hearings ?? []) as HearingRow[];
+  const courtMap = await loadCourtMap([
+    input.courtId,
+    ...hearingRows.map((hearing) => hearing.court_id),
+  ]);
+  const proposedCourt = input.courtId ? courtMap.get(input.courtId) ?? null : null;
+  const proposedCity = getCourtCity(proposedCourt);
+
   for (const block of (availabilityBlocks ?? []) as AvailabilityBlockRow[]) {
     const overlaps = timeOverlaps(
       input.startTime,
@@ -97,7 +111,7 @@ export async function checkAvailability(
     }
   }
 
-  for (const hearing of (hearings ?? []) as HearingRow[]) {
+  for (const hearing of hearingRows) {
     const overlap = timeOverlaps(
       input.startTime,
       input.endTime,
@@ -123,6 +137,19 @@ export async function checkAvailability(
           relatedEntityId: hearing.id,
         });
       } else if (input.courtId && hearing.court_id && hearing.court_id !== input.courtId) {
+        const existingCourt = courtMap.get(hearing.court_id) ?? null;
+        const existingCity = getCourtCity(existingCourt);
+
+        if (proposedCity && existingCity && proposedCity !== existingCity) {
+          conflicts.push({
+            type: "same_day_different_city",
+            severity: "hard",
+            reason: `Senior lawyer already has a hearing in ${formatCity(existingCity)} on this date. A same-day hearing in ${formatCity(proposedCity)} is not feasible.`,
+            relatedEntityId: hearing.id,
+          });
+          continue;
+        }
+
         conflicts.push({
           type: "same_day_different_court",
           severity: "soft",
@@ -186,4 +213,60 @@ export async function checkAvailability(
     reason: "Slot is available. No conflict found.",
     conflicts,
   };
+}
+
+async function loadCourtMap(courtIds: Array<string | null | undefined>): Promise<Map<string, CourtRow>> {
+  const ids = Array.from(new Set(courtIds.filter((courtId): courtId is string => Boolean(courtId))));
+  if (!ids.length) return new Map();
+
+  const { data, error } = await getSupabaseAdmin()
+    .from("courts")
+    .select("id,name,city")
+    .in("id", ids);
+
+  if (error) {
+    throw new Error(`Failed to load court cities: ${error.message}`);
+  }
+
+  return new Map(((data as CourtRow[] | null) ?? []).map((court) => [court.id, court]));
+}
+
+function getCourtCity(court: CourtRow | null): string | null {
+  return normalizeCity(court?.city) ?? inferCityFromCourtName(court?.name);
+}
+
+function inferCityFromCourtName(name?: string | null): string | null {
+  if (!name) return null;
+  const normalized = name.toLowerCase();
+  const knownCities = [
+    "lahore",
+    "multan",
+    "islamabad",
+    "rawalpindi",
+    "karachi",
+    "peshawar",
+    "quetta",
+    "faisalabad",
+    "bahawalpur",
+    "sahiwal",
+    "gujranwala",
+    "sargodha",
+    "sialkot",
+    "hyderabad",
+    "sukkur",
+  ];
+
+  return knownCities.find((city) => normalized.includes(city)) ?? null;
+}
+
+function normalizeCity(city?: string | null): string | null {
+  const normalized = city?.trim().toLowerCase();
+  return normalized || null;
+}
+
+function formatCity(city: string): string {
+  return city
+    .split(/\s+/)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
 }

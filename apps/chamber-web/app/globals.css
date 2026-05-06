@@ -1,13 +1,14 @@
 :root {
   color-scheme: light;
-  --ink: #18130c;
-  --muted: #746e63;
-  --paper: #f7efe0;
-  --line: #d8c6a8;
+  --ink: #17201c;
+  --muted: #66736d;
+  --paper: #f4f6f2;
+  --line: #d5ded7;
   --accent: #1e684d;
   --accent-strong: #123d2d;
-  --card: rgba(255, 252, 244, 0.92);
-  --shadow: 0 1.5rem 4rem rgba(35, 27, 15, 0.13);
+  --card: rgba(255, 255, 255, 0.94);
+  --shadow: 0 1.2rem 3rem rgba(23, 32, 28, 0.1);
+  --alert: #9b2f1f;
 }
 
 * {
@@ -16,12 +17,10 @@
 
 body {
   margin: 0;
-  background:
-    radial-gradient(circle at 10% 10%, rgba(30, 104, 77, 0.18), transparent 24rem),
-    radial-gradient(circle at 85% 20%, rgba(171, 101, 38, 0.14), transparent 26rem),
-    linear-gradient(135deg, #fffaf0 0%, var(--paper) 48%, #efe0c8 100%);
+  background: linear-gradient(180deg, #fbfcfa 0%, var(--paper) 100%);
   color: var(--ink);
-  font-family: Georgia, "Times New Roman", serif;
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
 body::before {
@@ -30,8 +29,8 @@ body::before {
   inset: 0;
   pointer-events: none;
   background-image:
-    linear-gradient(rgba(24, 19, 12, 0.035) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(24, 19, 12, 0.035) 1px, transparent 1px);
+    linear-gradient(rgba(23, 32, 28, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(23, 32, 28, 0.025) 1px, transparent 1px);
   background-size: 28px 28px;
   mask-image: linear-gradient(to bottom, black, transparent 75%);
 }
@@ -66,8 +65,8 @@ body::before {
 
 h1 {
   margin: 0 0 1rem;
-  font-size: clamp(2.5rem, 8vw, 5rem);
-  line-height: 0.92;
+  font-size: clamp(2.2rem, 6vw, 4.4rem);
+  line-height: 0.98;
 }
 
 p {
@@ -91,7 +90,8 @@ button,
 .action-row a {
   border: 1px solid var(--accent);
   background: var(--accent);
-  color: #fffaf0;
+  border-radius: 0.45rem;
+  color: #fbfcfa;
   cursor: pointer;
   display: inline-flex;
   font: inherit;
@@ -153,6 +153,7 @@ input {
   color: var(--ink);
   font: inherit;
   padding: 0.85rem 0.95rem;
+  width: 100%;
 }
 
 select,
@@ -211,7 +212,7 @@ textarea:focus {
 }
 
 .setup-hero h1 {
-  max-width: 13ch;
+  max-width: 15ch;
 }
 
 .setup-hero p {
@@ -229,9 +230,7 @@ textarea:focus {
 }
 
 .setup-status-card::before {
-  background:
-    radial-gradient(circle, rgba(30, 104, 77, 0.22) 0 28%, transparent 29%),
-    repeating-linear-gradient(135deg, rgba(30, 104, 77, 0.12) 0 8px, transparent 8px 18px);
+  background: repeating-linear-gradient(135deg, rgba(30, 104, 77, 0.14) 0 8px, transparent 8px 18px);
   content: "";
   height: 11rem;
   position: absolute;
@@ -379,7 +378,8 @@ textarea:focus {
 .form-section-heading > span {
   aspect-ratio: 1;
   background: var(--accent-strong);
-  color: #fffaf0;
+  border-radius: 0.4rem;
+  color: #fbfcfa;
   display: grid;
   font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
   font-weight: 700;
@@ -433,7 +433,8 @@ textarea:focus {
 
 .command-preview {
   background: #1e1810;
-  color: #fffaf0;
+  border-radius: 0.5rem;
+  color: #fbfcfa;
   display: grid;
   gap: 0.75rem;
   padding: 1rem;
@@ -523,9 +524,186 @@ th {
 
 .brand-mark {
   background: var(--accent-strong) !important;
-  color: #fffaf0 !important;
+  color: #fbfcfa !important;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+.notice {
+  align-items: center;
+  background: #e9f6ef;
+  border: 1px solid rgba(30, 104, 77, 0.28);
+  border-left: 0.35rem solid var(--accent);
+  color: var(--accent-strong);
+  display: flex;
+  gap: 0.65rem;
+  margin-bottom: 1rem;
+  padding: 0.85rem 1rem;
+}
+
+.notice strong {
+  font-size: 0.8rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.home-page {
+  min-height: 100vh;
+  width: min(1180px, calc(100% - 2rem));
+  margin: 0 auto;
+  padding: clamp(1rem, 3vw, 2.4rem) 0 4rem;
+}
+
+.home-hero {
+  align-items: end;
+  background: var(--card);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+  display: grid;
+  gap: 1.5rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: clamp(1.5rem, 4vw, 3rem);
+}
+
+.home-hero h1 {
+  max-width: 16ch;
+}
+
+.home-hero p {
+  max-width: 45rem;
+}
+
+.home-actions {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.home-actions a,
+.panel-heading.split a {
+  border: 1px solid var(--accent);
+  border-radius: 0.45rem;
+  color: var(--accent);
+  padding: 0.7rem 0.9rem;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.home-actions a:first-child {
+  background: var(--accent);
+  color: #fbfcfa;
+}
+
+.overview-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 1rem;
+}
+
+.overview-card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  box-shadow: 0 0.8rem 2rem rgba(23, 32, 28, 0.06);
+  padding: 1.1rem;
+}
+
+.overview-card.is-alert {
+  border-color: rgba(155, 47, 31, 0.35);
+  box-shadow: inset 0.3rem 0 0 var(--alert);
+}
+
+.overview-card span {
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 0.75rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.overview-card strong {
+  color: var(--accent-strong);
+  display: block;
+  font-size: 2.4rem;
+  line-height: 1;
+  margin-top: 0.55rem;
+}
+
+.overview-card p {
+  font-size: 0.95rem;
+  margin: 0.5rem 0 0;
+}
+
+.home-layout {
+  align-items: flex-start;
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(0, 1fr) 22rem;
+  margin-top: 1rem;
+}
+
+.compact-hearing-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.compact-hearing {
+  align-items: center;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.55);
+  display: grid;
+  gap: 0.9rem;
+  grid-template-columns: 4.5rem minmax(0, 1fr);
+  padding: 0.85rem;
+}
+
+.compact-hearing time {
+  background: #1e1810;
+  color: #fbfcfa;
+  display: grid;
+  min-height: 4.5rem;
+  place-items: center;
+}
+
+.compact-hearing time span {
+  color: #dbe7df;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 0.68rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.compact-hearing time strong {
+  font-size: 1.8rem;
+  line-height: 0.8;
+}
+
+.compact-hearing h3,
+.compact-hearing p {
+  margin: 0;
+}
+
+.compact-hearing h3 {
+  font-size: 1.15rem;
+}
+
+.compact-hearing p,
+.compact-hearing small {
+  color: var(--muted);
+}
+
+.contact-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.contact-list span {
+  border: 1px solid rgba(30, 104, 77, 0.25);
+  background: rgba(30, 104, 77, 0.08);
+  color: var(--accent-strong);
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 0.78rem;
+  padding: 0.4rem 0.55rem;
 }
 
 .diary-page {
@@ -537,9 +715,7 @@ th {
 
 .diary-hero {
   border: 1px solid var(--line);
-  background:
-    linear-gradient(100deg, rgba(255, 252, 244, 0.96), rgba(255, 252, 244, 0.78)),
-    radial-gradient(circle at 90% 20%, rgba(30, 104, 77, 0.16), transparent 20rem);
+  background: var(--card);
   box-shadow: var(--shadow);
   display: grid;
   gap: 1.5rem;
@@ -579,8 +755,8 @@ th {
 }
 
 .metric-link.is-alert {
-  border-color: #9b2f1f;
-  background: #9b2f1f;
+  border-color: var(--alert);
+  background: var(--alert);
 }
 
 .metric-grid span,
@@ -708,7 +884,7 @@ th {
 
 .date-tile {
   background: #1e1810;
-  color: #fffaf0;
+  color: #fbfcfa;
   display: grid;
   min-height: 5rem;
   place-items: center;
@@ -870,6 +1046,9 @@ th {
   .dashboard-grid,
   .diary-hero,
   .diary-layout,
+  .home-hero,
+  .home-layout,
+  .overview-grid,
   .member-columns,
   .setup-hero,
   .setup-layout {
@@ -888,9 +1067,15 @@ th {
   }
 
   .hearing-title-row,
+  .home-actions,
   .management-header,
   .topbar {
     align-items: stretch;
+    flex-direction: column;
+  }
+
+  .notice {
+    align-items: flex-start;
     flex-direction: column;
   }
 }

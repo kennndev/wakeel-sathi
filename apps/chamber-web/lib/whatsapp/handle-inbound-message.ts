@@ -43,10 +43,11 @@ type MatterRow = {
 type CourtRow = {
   id: string;
   name: string;
+  city: string | null;
 };
 
 type ConversationFlow = "check_slot" | "save_date";
-type ConversationStep = "date" | "time" | "matter" | "court" | "senior" | "confirm_save";
+type ConversationStep = "date" | "time" | "matter" | "court" | "confirm_save";
 type ConversationPayload = {
   date?: string;
   startTime?: string | null;
@@ -148,6 +149,17 @@ export async function handleInboundWhatsappMessage(input: HandleInboundMessageIn
       entityType: "whatsapp_inbound",
       entityId: sender.user_id,
       recipientUserId: sender.user_id,
+    });
+    return;
+  }
+
+  const dateFirstCheck = parseDateFirstCheck(text);
+  if (dateFirstCheck) {
+    await runCheckOnlyFlow({
+      organizationId: sender.organization_id,
+      senderUserId: sender.user_id,
+      fromPhone: input.fromPhone,
+      payload: dateFirstCheck,
     });
     return;
   }
@@ -343,6 +355,17 @@ async function handleGuidedConversation(input: {
   }
 
   if (input.state.step === "matter") {
+    if (payload.courtText) {
+      await runGuidedFlow({
+        organizationId: input.organizationId,
+        senderUserId: input.senderUserId,
+        fromPhone: input.fromPhone,
+        flow: input.state.flow,
+        payload: { ...payload, matterText: input.text.trim() },
+      });
+      return;
+    }
+
     await saveConversationState({
       organizationId: input.organizationId,
       userId: input.senderUserId,
@@ -356,30 +379,18 @@ async function handleGuidedConversation(input: {
   }
 
   if (input.state.step === "court") {
-    await saveConversationState({
-      organizationId: input.organizationId,
-      userId: input.senderUserId,
-      phone: input.fromPhone,
-      flow: input.state.flow,
-      step: "senior",
-      payload: { ...payload, courtText: isSkip(input.text) ? null : input.text.trim() },
-    });
-    await reply(input, "Senior lawyer name? Reply SKIP to use the default senior.");
-    return;
-  }
-
-  if (input.state.step === "senior") {
-    const finalPayload = {
-      ...payload,
-      seniorLawyerName: isSkip(input.text) ? null : input.text.trim(),
-    };
     await runGuidedFlow({
       organizationId: input.organizationId,
       senderUserId: input.senderUserId,
       fromPhone: input.fromPhone,
       flow: input.state.flow,
-      payload: finalPayload,
+      payload: {
+        ...payload,
+        courtText: isSkip(input.text) ? null : input.text.trim(),
+        seniorLawyerName: null,
+      },
     });
+    return;
   }
 }
 
@@ -484,6 +495,11 @@ async function runCheckOnlyFlow(input: {
     return;
   }
 
+  const court = await resolveCourt({
+    organizationId: input.organizationId,
+    courtText: input.payload.courtText,
+  });
+
   const availability = await checkAvailability({
     organizationId: input.organizationId,
     seniorLawyerId: senior.id,
@@ -491,7 +507,7 @@ async function runCheckOnlyFlow(input: {
     date: input.payload.date,
     startTime: input.payload.startTime,
     endTime: null,
-    courtId: null,
+    courtId: court?.id ?? null,
     matterId: null,
   });
 
@@ -517,6 +533,7 @@ async function runCheckOnlyFlow(input: {
     payload: {
       date: input.payload.date,
       startTime: input.payload.startTime,
+      courtText: input.payload.courtText ?? null,
       checkedAvailable: true,
     },
   });
@@ -637,7 +654,7 @@ async function resolveCourt(input: {
 
   const { data: existing, error: findError } = await supabaseAdmin
     .from("courts")
-    .select("id,name")
+    .select("id,name,city")
     .or(`organization_id.eq.${input.organizationId},organization_id.is.null`)
     .ilike("name", `%${name}%`)
     .limit(1)
@@ -651,8 +668,9 @@ async function resolveCourt(input: {
     .insert({
       organization_id: input.organizationId,
       name,
+      city: inferCityFromCourtName(name),
     })
-    .select("id,name")
+    .select("id,name,city")
     .single();
 
   if (createError) throw new Error(`Failed to create court: ${createError.message}`);
@@ -989,13 +1007,35 @@ function isSkip(text: string) {
 }
 
 function parseLooseDate(text: string): string | null {
-  const match = text.match(/(\d{4}-\d{2}-\d{2}|\d{1,2}[/-]\d{1,2}[/-]\d{4})/);
+  const match = text.match(/(\d{4}-\d{2}-\d{2}|\d{1,2}[/-]\d{1,2}[/-]\d{2,4})/);
   return match ? normalizeDate(match[1]) : null;
 }
 
 function parseLooseTime(text: string): string | null {
   const match = text.match(/(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)/i);
   return match ? normalizeTime(match[1]) : null;
+}
+
+function parseDateFirstCheck(text: string): ConversationPayload | null {
+  const dateMatch = text.match(/(\d{4}-\d{2}-\d{2}|\d{1,2}[/-]\d{1,2}[/-]\d{2,4})/);
+  if (!dateMatch || dateMatch.index !== 0) return null;
+
+  const date = normalizeDate(dateMatch[1]);
+  if (!date) return null;
+
+  const withoutDate = text.slice(dateMatch[1].length).trim();
+  const timeMatch = withoutDate.match(/^(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)/i);
+  const startTime = timeMatch ? normalizeTime(timeMatch[1]) : null;
+  const courtText = withoutDate
+    .slice(timeMatch ? timeMatch[1].length : 0)
+    .replace(/^(at|in|court)\b/i, "")
+    .trim();
+
+  return {
+    date,
+    startTime,
+    courtText: courtText || null,
+  };
 }
 
 function parseOutcomeWhatsappText(text: string):
@@ -1037,7 +1077,7 @@ function parseOutcomeWhatsappText(text: string):
   }
 
   const nextDateStatus = getNextDateStatus(outcomeType, nextValue);
-  const nextDateMatch = nextValue?.match(/(\d{4}-\d{2}-\d{2}|\d{1,2}[/-]\d{1,2}[/-]\d{4})/);
+  const nextDateMatch = nextValue?.match(/(\d{4}-\d{2}-\d{2}|\d{1,2}[/-]\d{1,2}[/-]\d{2,4})/);
   const nextDate = nextDateMatch ? parseOutcomeDate(nextDateMatch[1]) : null;
   const nextTime = parseOutcomeTime(nextValue?.replace(nextDateMatch?.[1] ?? "", "").trim());
 
@@ -1061,7 +1101,7 @@ function parseNextDateWhatsappText(text: string):
   | { ok: false; error: string } {
   const match = text
     .trim()
-    .match(/^nextdate\s+(.+?)\s+(\d{4}-\d{2}-\d{2}|\d{1,2}[/-]\d{1,2}[/-]\d{4})(.*)$/i);
+    .match(/^nextdate\s+(.+?)\s+(\d{4}-\d{2}-\d{2}|\d{1,2}[/-]\d{1,2}[/-]\d{2,4})(.*)$/i);
 
   if (!match) {
     return { ok: false, error: 'Use: NEXTDATE "Matter title/case number/hearing ID" 12-05-2026 10am' };
@@ -1169,6 +1209,29 @@ function normalizeWhatsappPhone(phone: string): string {
   if (digits.startsWith("92")) return `+${digits}`;
   if (digits.startsWith("0")) return `+92${digits.slice(1)}`;
   return `+${digits}`;
+}
+
+function inferCityFromCourtName(name: string): string | null {
+  const normalized = name.toLowerCase();
+  const knownCities = [
+    "lahore",
+    "multan",
+    "islamabad",
+    "rawalpindi",
+    "karachi",
+    "peshawar",
+    "quetta",
+    "faisalabad",
+    "bahawalpur",
+    "sahiwal",
+    "gujranwala",
+    "sargodha",
+    "sialkot",
+    "hyderabad",
+    "sukkur",
+  ];
+
+  return knownCities.find((city) => normalized.includes(city)) ?? null;
 }
 
 function normalizeJoinedUser(value: UserRow | UserRow[] | null | undefined): UserRow | null {

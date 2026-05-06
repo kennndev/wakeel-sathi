@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Notice } from "../components/Notice";
 import {
   addJuniorToChamber,
   createChamberSetup,
@@ -7,6 +8,10 @@ import {
 import { getSupabaseAdmin } from "../../lib/db/supabase-admin";
 
 export const dynamic = "force-dynamic";
+
+type SetupPageProps = {
+  searchParams?: Promise<{ notice?: string }>;
+};
 
 type MemberRow = {
   id: string;
@@ -25,7 +30,8 @@ type ChamberRow = {
   whatsapp_contacts: Array<{ phone: string; user_id: string; is_active: boolean }>;
 };
 
-export default async function SetupPage() {
+export default async function SetupPage({ searchParams }: SetupPageProps) {
+  const { notice } = (await searchParams) ?? {};
   const chambers = await loadChambers();
   const primaryChamber = chambers[0] ?? null;
   const seniorMembers =
@@ -35,6 +41,7 @@ export default async function SetupPage() {
 
   return (
     <main className="setup-page">
+      <Notice notice={notice} />
       <section className="setup-hero">
         <div>
           <p className="eyebrow">Chamber Management</p>
@@ -167,7 +174,7 @@ export default async function SetupPage() {
           <ul>
             <li>Creates the chamber organization before dependent records.</li>
             <li>Adds senior and junior users with active chamber roles.</li>
-            <li>Registers the junior phone in WhatsApp contacts.</li>
+            <li>Registers senior and junior phones in WhatsApp contacts.</li>
             <li>Marks WhatsApp opt-in for MVP testing.</li>
           </ul>
           <div className="command-preview">

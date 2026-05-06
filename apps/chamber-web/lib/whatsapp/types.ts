@@ -17,6 +17,7 @@ export type AvailabilityConflict = {
     | "appearing_same_time"
     | "senior_unavailable"
     | "appearing_unavailable"
+    | "same_day_different_city"
     | "same_day_different_court"
     | "duplicate_matter_date";
   severity: "hard" | "soft";

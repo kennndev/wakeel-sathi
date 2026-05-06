@@ -51,7 +51,7 @@ export async function saveOutcomeAction(formData: FormData) {
 
   revalidatePath("/diary");
   revalidatePath("/chamber/missing-next-dates");
-  redirect("/chamber/missing-next-dates");
+  redirect("/chamber/missing-next-dates?notice=outcome-saved");
 }
 
 export async function askJuniorAction(formData: FormData) {
@@ -61,6 +61,7 @@ export async function askJuniorAction(formData: FormData) {
   await sendMissingNextDateReminder({ organizationId, outcomeId });
 
   revalidatePath("/chamber/missing-next-dates");
+  redirect("/chamber/missing-next-dates?notice=junior-asked");
 }
 
 export async function markOutcomeAction(formData: FormData) {
@@ -76,6 +77,7 @@ export async function markOutcomeAction(formData: FormData) {
 
   revalidatePath("/diary");
   revalidatePath("/chamber/missing-next-dates");
+  redirect("/chamber/missing-next-dates?notice=queue-updated");
 }
 
 async function loadHearingForNextDate(hearingId: string) {

@@ -1,8 +1,13 @@
 import Link from "next/link";
+import { Notice } from "../../components/Notice";
 import { askJuniorAction, markOutcomeAction } from "../../../lib/outcomes/actions";
 import { getMissingNextDateQueue } from "../../../lib/outcomes/hearing-outcomes";
 
 export const dynamic = "force-dynamic";
+
+type MissingNextDatesPageProps = {
+  searchParams?: Promise<{ notice?: string }>;
+};
 
 type MissingRow = {
   id: string;
@@ -33,7 +38,8 @@ type MissingRow = {
     | null;
 };
 
-export default async function MissingNextDatesPage() {
+export default async function MissingNextDatesPage({ searchParams }: MissingNextDatesPageProps) {
+  const { notice } = (await searchParams) ?? {};
   const rows = (await getMissingNextDateQueue()) as unknown as MissingRow[];
 
   return (
@@ -47,6 +53,8 @@ export default async function MissingNextDatesPage() {
           <Link href="/setup">Setup</Link>
         </div>
       </nav>
+
+      <Notice notice={notice} />
 
       <section className="diary-hero queue-hero">
         <div>

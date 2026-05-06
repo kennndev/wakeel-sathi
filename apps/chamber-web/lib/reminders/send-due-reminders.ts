@@ -64,14 +64,22 @@ export async function sendDueWhatsappReminders() {
     }
 
     const userId = reminder.assigned_to;
-    const phone = userId
-      ? contactsByUserId.get(userId)?.phone ?? usersById.get(userId)?.phone
-      : null;
+    const contactPhone = userId ? contactsByUserId.get(userId)?.phone : null;
+    const userPhone = userId ? usersById.get(userId)?.phone : null;
+    const phone = contactPhone ?? userPhone;
 
     if (!userId || !phone) {
       failed += 1;
       await markReminder(reminder.id, "failed");
       continue;
+    }
+
+    if (!contactPhone && userPhone) {
+      await saveWhatsappContact({
+        organizationId: reminder.organization_id,
+        userId,
+        phone: userPhone,
+      });
     }
 
     const result = await sendWhatsappText({
@@ -155,4 +163,37 @@ async function markReminder(reminderId: string, status: "sent" | "failed" | "dis
     .from("reminders")
     .update({ status })
     .eq("id", reminderId);
+}
+
+async function saveWhatsappContact(input: {
+  organizationId: string;
+  userId: string;
+  phone: string;
+}) {
+  const supabase = getSupabaseAdmin();
+  const now = new Date().toISOString();
+
+  await supabase.from("whatsapp_contacts").upsert(
+    {
+      organization_id: input.organizationId,
+      user_id: input.userId,
+      phone: input.phone,
+      is_active: true,
+      updated_at: now,
+    },
+    { onConflict: "organization_id,phone" },
+  );
+
+  await supabase.from("whatsapp_opt_ins").upsert(
+    {
+      organization_id: input.organizationId,
+      user_id: input.userId,
+      phone: input.phone,
+      opt_in_status: "opted_in",
+      opted_in_at: now,
+      source: "reminder_delivery_backfill",
+      updated_at: now,
+    },
+    { onConflict: "organization_id,user_id,phone" },
+  );
 }

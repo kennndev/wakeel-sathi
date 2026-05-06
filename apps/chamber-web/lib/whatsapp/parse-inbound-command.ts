@@ -23,7 +23,7 @@ export function parseInboundCommand(rawText: string): ParsedInboundCommand {
     };
   }
 
-  const dateMatch = text.match(/(\d{4}-\d{2}-\d{2}|\d{1,2}[/-]\d{1,2}[/-]\d{4})/);
+  const dateMatch = text.match(/(\d{4}-\d{2}-\d{2}|\d{1,2}[/-]\d{1,2}[/-]\d{2,4})/);
   if (!dateMatch) {
     return {
       ok: false,

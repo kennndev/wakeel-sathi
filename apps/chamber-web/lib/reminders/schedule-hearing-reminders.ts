@@ -87,7 +87,12 @@ async function sendCatchUpReminders(
   }>,
 ) {
   for (const reminder of reminders) {
-    const phone = reminder.assigned_to ? await getPhoneForUser(reminder.assigned_to) : null;
+    const phone = reminder.assigned_to
+      ? await getPhoneForUser({
+          organizationId: reminder.organization_id,
+          userId: reminder.assigned_to,
+        })
+      : null;
 
     if (!reminder.assigned_to || !phone) {
       await markReminder(reminder.id, "failed");
@@ -107,12 +112,16 @@ async function sendCatchUpReminders(
   }
 }
 
-async function getPhoneForUser(userId: string): Promise<string | null> {
+async function getPhoneForUser(input: {
+  organizationId: string;
+  userId: string;
+}): Promise<string | null> {
   const supabase = getSupabaseAdmin();
   const { data: contact } = await supabase
     .from("whatsapp_contacts")
     .select("phone")
-    .eq("user_id", userId)
+    .eq("organization_id", input.organizationId)
+    .eq("user_id", input.userId)
     .eq("is_active", true)
     .limit(1)
     .maybeSingle();
@@ -122,12 +131,54 @@ async function getPhoneForUser(userId: string): Promise<string | null> {
   const { data: user } = await supabase
     .from("users")
     .select("phone")
-    .eq("id", userId)
+    .eq("id", input.userId)
     .maybeSingle();
 
-  return (user?.phone as string | undefined) ?? null;
+  const phone = (user?.phone as string | undefined) ?? null;
+  if (phone) {
+    await saveWhatsappContact({
+      organizationId: input.organizationId,
+      userId: input.userId,
+      phone,
+    });
+  }
+
+  return phone;
 }
 
 async function markReminder(reminderId: string, status: "sent" | "failed") {
   await getSupabaseAdmin().from("reminders").update({ status }).eq("id", reminderId);
+}
+
+async function saveWhatsappContact(input: {
+  organizationId: string;
+  userId: string;
+  phone: string;
+}) {
+  const supabase = getSupabaseAdmin();
+  const now = new Date().toISOString();
+
+  await supabase.from("whatsapp_contacts").upsert(
+    {
+      organization_id: input.organizationId,
+      user_id: input.userId,
+      phone: input.phone,
+      is_active: true,
+      updated_at: now,
+    },
+    { onConflict: "organization_id,phone" },
+  );
+
+  await supabase.from("whatsapp_opt_ins").upsert(
+    {
+      organization_id: input.organizationId,
+      user_id: input.userId,
+      phone: input.phone,
+      opt_in_status: "opted_in",
+      opted_in_at: now,
+      source: "reminder_delivery_backfill",
+      updated_at: now,
+    },
+    { onConflict: "organization_id,user_id,phone" },
+  );
 }

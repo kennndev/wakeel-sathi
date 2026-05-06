@@ -46,16 +46,23 @@ export async function createChamberSetup(formData: FormData) {
     throw new Error(`Failed to save chamber members: ${membersError.message}`);
   }
 
-  await saveWhatsappOptIn({
-    organizationId,
-    userId: juniorId,
-    phone: juniorPhone,
-  });
+  await Promise.all([
+    saveWhatsappOptIn({
+      organizationId,
+      userId: seniorId,
+      phone: seniorPhone,
+    }),
+    saveWhatsappOptIn({
+      organizationId,
+      userId: juniorId,
+      phone: juniorPhone,
+    }),
+  ]);
 
   revalidatePath("/");
   revalidatePath("/setup");
   revalidatePath("/diary");
-  redirect("/diary");
+  redirect("/diary?notice=chamber-saved");
 }
 
 export async function addJuniorToChamber(formData: FormData) {
@@ -91,6 +98,7 @@ export async function addJuniorToChamber(formData: FormData) {
 
   revalidatePath("/setup");
   revalidatePath("/diary");
+  redirect("/setup?notice=junior-added");
 }
 
 export async function updateMemberPhone(formData: FormData) {
@@ -120,6 +128,7 @@ export async function updateMemberPhone(formData: FormData) {
 
   revalidatePath("/setup");
   revalidatePath("/diary");
+  redirect("/setup?notice=member-updated");
 }
 
 async function getOrCreateOrganizationId(name: string): Promise<string> {

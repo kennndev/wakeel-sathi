@@ -1,7 +1,12 @@
 import Link from "next/link";
+import { Notice } from "../components/Notice";
 import { getSupabaseAdmin } from "../../lib/db/supabase-admin";
 
 export const dynamic = "force-dynamic";
+
+type DiaryPageProps = {
+  searchParams?: Promise<{ notice?: string }>;
+};
 
 type HearingRow = {
   id: string;
@@ -21,7 +26,8 @@ type ChamberRow = {
   whatsapp_contacts: Array<{ phone: string; is_active: boolean }>;
 };
 
-export default async function DiaryPage() {
+export default async function DiaryPage({ searchParams }: DiaryPageProps) {
+  const { notice } = (await searchParams) ?? {};
   const configuredOrganizationId = process.env.DEFAULT_ORGANIZATION_ID?.trim();
   const supabase = getSupabaseAdmin();
 
@@ -85,6 +91,8 @@ export default async function DiaryPage() {
           <Link href="/chamber/missing-next-dates">Missing Dates</Link>
         </div>
       </nav>
+
+      <Notice notice={notice} />
 
       <section className="diary-hero">
         <div>

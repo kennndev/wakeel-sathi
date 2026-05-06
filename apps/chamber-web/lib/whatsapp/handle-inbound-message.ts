@@ -155,6 +155,26 @@ export async function handleInboundWhatsappMessage(input: HandleInboundMessageIn
 
   const dateFirstCheck = parseDateFirstCheck(text);
   if (dateFirstCheck) {
+    if (!dateFirstCheck.courtText) {
+      await saveConversationState({
+        organizationId: sender.organization_id,
+        userId: sender.user_id,
+        phone: input.fromPhone,
+        flow: "check_slot",
+        step: "court",
+        payload: dateFirstCheck,
+      });
+      await sendWhatsappText({
+        organizationId: sender.organization_id,
+        to: input.fromPhone,
+        body: "Which city or court? Example: Lahore High Court, Multan High Court, or just Lahore.",
+        entityType: "whatsapp_inbound",
+        entityId: sender.user_id,
+        recipientUserId: sender.user_id,
+      });
+      return;
+    }
+
     await runCheckOnlyFlow({
       organizationId: sender.organization_id,
       senderUserId: sender.user_id,
@@ -333,12 +353,18 @@ async function handleGuidedConversation(input: {
     }
 
     if (input.state.flow === "check_slot") {
-      await runCheckOnlyFlow({
+      await saveConversationState({
         organizationId: input.organizationId,
-        senderUserId: input.senderUserId,
-        fromPhone: input.fromPhone,
+        userId: input.senderUserId,
+        phone: input.fromPhone,
+        flow: input.state.flow,
+        step: "court",
         payload: { ...payload, startTime },
       });
+      await reply(
+        input,
+        "Which city or court? Example: Lahore High Court, Multan High Court, or just Lahore.",
+      );
       return;
     }
 
@@ -379,6 +405,19 @@ async function handleGuidedConversation(input: {
   }
 
   if (input.state.step === "court") {
+    if (input.state.flow === "check_slot") {
+      await runCheckOnlyFlow({
+        organizationId: input.organizationId,
+        senderUserId: input.senderUserId,
+        fromPhone: input.fromPhone,
+        payload: {
+          ...payload,
+          courtText: isSkip(input.text) ? null : input.text.trim(),
+        },
+      });
+      return;
+    }
+
     await runGuidedFlow({
       organizationId: input.organizationId,
       senderUserId: input.senderUserId,

@@ -46,6 +46,14 @@ type CourtRow = {
   city: string | null;
 };
 
+type ScheduleHearingRow = {
+  id: string;
+  hearing_date: string;
+  start_time: string | null;
+  matters: { title: string; case_number: string | null } | { title: string; case_number: string | null }[] | null;
+  courts: { name: string } | { name: string }[] | null;
+};
+
 type ConversationFlow = "check_slot" | "save_date";
 type ConversationStep = "date" | "time" | "matter" | "court" | "confirm_save";
 type ConversationPayload = {
@@ -108,6 +116,15 @@ export async function handleInboundWhatsappMessage(input: HandleInboundMessageIn
       senderUserId: sender.user_id,
       fromPhone: input.fromPhone,
       text: input.text,
+    });
+    return;
+  }
+
+  if (isScheduleCommand(text)) {
+    await handleScheduleCommand({
+      organizationId: sender.organization_id,
+      senderUserId: sender.user_id,
+      fromPhone: input.fromPhone,
     });
     return;
   }
@@ -289,15 +306,16 @@ export async function handleInboundWhatsappMessage(input: HandleInboundMessageIn
     return;
   }
 
+  const senderName = await getUserName(sender.user_id);
   await sendWhatsappText({
     organizationId: sender.organization_id,
     to: input.fromPhone,
     body:
-      `Saved.\n\n` +
+      `Saved for ${senior.full_name}.\n` +
+      `Added by: ${senior.id === sender.user_id ? "Senior himself" : senderName ?? "Junior lawyer"}\n\n` +
       `${matter.title}\n` +
       `${formatDateForWhatsapp(parsed.date)}${parsed.startTime ? ` at ${parsed.startTime}` : ""}\n` +
       `${court?.name ?? "Court not specified"}\n` +
-      `Senior: ${senior.full_name}\n` +
       (created.availability.status === "soft_warning"
         ? `\nNote: ${created.availability.reason}`
         : ""),
@@ -568,11 +586,14 @@ async function runGuidedFlow(input: {
     return;
   }
 
+  const senderName = await getUserName(input.senderUserId);
   await reply(
     input,
     `Saved for ${senior.full_name}.\n\n${matter.title}\n${formatDateForWhatsapp(input.payload.date)}${
       input.payload.startTime ? ` at ${input.payload.startTime}` : ""
-    }\n${court?.name ?? "Court not specified"}\n\nSend another date and time if you want me to check the next one.`,
+    }\n${court?.name ?? "Court not specified"}\nAdded by: ${
+      senior.id === input.senderUserId ? "Senior himself" : senderName ?? "Junior lawyer"
+    }\n\nSend another date and time if you want me to check the next one.`,
   );
 
   await notifySeniorOfConfirmedHearing({
@@ -808,6 +829,7 @@ async function notifySeniorOfConfirmedHearing(input: {
 }) {
   if (input.senior.id === input.senderUserId) return;
 
+  const senderName = await getUserName(input.senderUserId);
   const phone = await getWhatsappPhoneForUser({
     organizationId: input.organizationId,
     userId: input.senior.id,
@@ -822,11 +844,26 @@ async function notifySeniorOfConfirmedHearing(input: {
       `New date noted.\n\n` +
       `${input.matterTitle}\n` +
       `${formatDateForWhatsapp(input.hearingDate)}${input.startTime ? ` at ${input.startTime}` : ""}\n` +
-      `${input.courtName}`,
+      `${input.courtName}\n` +
+      `Added by: ${senderName ?? "Junior lawyer"}`,
     entityType: "hearing",
     entityId: input.hearingId,
     recipientUserId: input.senior.id,
   });
+}
+
+async function getUserName(userId: string): Promise<string | null> {
+  const { data, error } = await getSupabaseAdmin()
+    .from("users")
+    .select("full_name")
+    .eq("id", userId)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`Failed to load user name: ${error.message}`);
+  }
+
+  return (data?.full_name as string | undefined) ?? null;
 }
 
 async function getWhatsappPhoneForUser(input: {
@@ -1105,6 +1142,83 @@ function isOutcomeCommand(text: string) {
 
 function isNextDateCommand(text: string) {
   return text.trim().toLowerCase().startsWith("nextdate ");
+}
+
+function isScheduleCommand(text: string) {
+  return ["schedule", "my schedule", "diary", "upcoming"].includes(text.trim().toLowerCase());
+}
+
+async function handleScheduleCommand(input: {
+  organizationId: string;
+  senderUserId: string;
+  fromPhone: string;
+}) {
+  const today = getTodayInPakistan();
+  const { data, error } = await getSupabaseAdmin()
+    .from("hearings")
+    .select("id,hearing_date,start_time,matters(title,case_number),courts(name)")
+    .eq("organization_id", input.organizationId)
+    .gte("hearing_date", today)
+    .is("deleted_at", null)
+    .in("status", ["scheduled", "pending_update"])
+    .order("hearing_date", { ascending: true })
+    .order("start_time", { ascending: true })
+    .limit(10);
+
+  if (error) {
+    throw new Error(`Failed to load schedule: ${error.message}`);
+  }
+
+  const hearings = (data as unknown as ScheduleHearingRow[] | null) ?? [];
+  const body = hearings.length
+    ? [
+        `Upcoming schedule (${hearings.length}${hearings.length === 10 ? "+" : ""})`,
+        "",
+        ...hearings.map((hearing, index) => {
+          const matter = single(hearing.matters);
+          const court = single(hearing.courts);
+          return [
+            `${index + 1}. ${formatDateForWhatsapp(hearing.hearing_date)}${
+              hearing.start_time ? ` at ${hearing.start_time}` : ""
+            }`,
+            matter?.title ?? "Matter not specified",
+            court?.name ?? "Court not specified",
+            matter?.case_number ? `Case: ${matter.case_number}` : "",
+          ]
+            .filter(Boolean)
+            .join("\n");
+        }),
+        "",
+        "Send another date and time if you want me to check a new slot.",
+      ].join("\n")
+    : "No upcoming hearings found. Send a date and time if you want me to check a new slot.";
+
+  await sendWhatsappText({
+    organizationId: input.organizationId,
+    to: input.fromPhone,
+    body,
+    entityType: "whatsapp_inbound",
+    entityId: input.senderUserId,
+    recipientUserId: input.senderUserId,
+  });
+}
+
+function getTodayInPakistan(): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Karachi",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const year = parts.find((part) => part.type === "year")?.value;
+  const month = parts.find((part) => part.type === "month")?.value;
+  const day = parts.find((part) => part.type === "day")?.value;
+  return `${year}-${month}-${day}`;
+}
+
+function single<T>(value: T | T[] | null): T | null {
+  if (!value) return null;
+  return Array.isArray(value) ? value[0] ?? null : value;
 }
 
 function getQuickFlow(text: string): ConversationFlow | null {

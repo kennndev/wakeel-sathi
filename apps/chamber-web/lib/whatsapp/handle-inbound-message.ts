@@ -381,8 +381,30 @@ async function handleGuidedConversation(input: {
   }
 
   if (input.state.step === "matter") {
-    if (parseDateFirstCheck(input.text)) {
-      await reply(input, "Please send the matter name or case number, not the date again. Send CANCEL to start over.");
+    const nextDateCheck = parseDateFirstCheck(input.text);
+    if (nextDateCheck) {
+      if (!nextDateCheck.courtText) {
+        await saveConversationState({
+          organizationId: input.organizationId,
+          userId: input.senderUserId,
+          phone: input.fromPhone,
+          flow: "check_slot",
+          step: "court",
+          payload: nextDateCheck,
+        });
+        await reply(
+          input,
+          "Sure, I will check this new date. Which city or court? Example: Lahore High Court, Multan High Court, or just Lahore.",
+        );
+        return;
+      }
+
+      await runCheckOnlyFlow({
+        organizationId: input.organizationId,
+        senderUserId: input.senderUserId,
+        fromPhone: input.fromPhone,
+        payload: nextDateCheck,
+      });
       return;
     }
 
@@ -475,9 +497,14 @@ async function askSaveConfirmation(input: {
     payload: input.payload,
   });
 
+  const senior = await resolveSeniorLawyer({
+    organizationId: input.organizationId,
+    seniorLawyerName: input.payload.seniorLawyerName,
+  });
+
   await reply(
     input,
-    `Ready to save?\n\n${input.payload.matterText}\n${formatDateForWhatsapp(input.payload.date)}${
+    `Ready to save for ${senior?.full_name ?? "the senior lawyer"}?\n\n${input.payload.matterText}\n${formatDateForWhatsapp(input.payload.date)}${
       input.payload.startTime ? ` at ${input.payload.startTime}` : ""
     }\n${input.payload.courtText ?? "Court not specified"}\n\nReply SAVE to confirm, or CANCEL to stop.`,
   );
@@ -543,9 +570,9 @@ async function runGuidedFlow(input: {
 
   await reply(
     input,
-    `Saved.\n\n${matter.title}\n${formatDateForWhatsapp(input.payload.date)}${
+    `Saved for ${senior.full_name}.\n\n${matter.title}\n${formatDateForWhatsapp(input.payload.date)}${
       input.payload.startTime ? ` at ${input.payload.startTime}` : ""
-    }\n${court?.name ?? "Court not specified"}\nSenior: ${senior.full_name}`,
+    }\n${court?.name ?? "Court not specified"}\n\nSend another date and time if you want me to check the next one.`,
   );
 
   await notifySeniorOfConfirmedHearing({
@@ -607,6 +634,7 @@ async function runCheckOnlyFlow(input: {
         date: input.payload.date,
         time: input.payload.startTime,
         availability,
+        seniorName: senior.full_name,
       }),
     );
     await clearConversationState(input.organizationId, input.senderUserId, input.fromPhone);
@@ -629,11 +657,12 @@ async function runCheckOnlyFlow(input: {
 
   await reply(
     input,
-    `${formatQuickAvailabilityReply({
+    formatQuickAvailabilityReply({
       date: input.payload.date,
       time: input.payload.startTime,
       availability,
-    })}\n\nIf you want to save it, send the matter name or case number now. Otherwise send CANCEL.`,
+      seniorName: senior.full_name,
+    }),
   );
 }
 
@@ -1278,6 +1307,7 @@ function formatAvailabilityReply(input: {
 function formatQuickAvailabilityReply(input: {
   date: string;
   time?: string | null;
+  seniorName: string;
   availability: {
     isAvailable: boolean;
     reason: string;
@@ -1285,15 +1315,15 @@ function formatQuickAvailabilityReply(input: {
   };
 }) {
   if (input.availability.isAvailable) {
-    return `Looks clear for ${formatDateForWhatsapp(input.date)}${
+    return `${input.seniorName} looks clear for ${formatDateForWhatsapp(input.date)}${
       input.time ? ` at ${input.time}` : ""
-    }.`;
+    }.\n\nSend the matter name/case number to save it, or send another date and time to check a different slot.`;
   }
 
   const conflict = input.availability.conflicts[0]?.reason ?? input.availability.reason;
-  return `There is a clash on ${formatDateForWhatsapp(input.date)}${
+  return `There is a clash for ${input.seniorName} on ${formatDateForWhatsapp(input.date)}${
     input.time ? ` at ${input.time}` : ""
-  }.\n${conflict}`;
+  }.\n${conflict}\n\nSend another date and time if you want me to check a different slot.`;
 }
 
 function normalizeWhatsappPhone(phone: string): string {

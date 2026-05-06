@@ -381,8 +381,13 @@ async function handleGuidedConversation(input: {
   }
 
   if (input.state.step === "matter") {
+    if (parseDateFirstCheck(input.text)) {
+      await reply(input, "Please send the matter name or case number, not the date again. Send CANCEL to start over.");
+      return;
+    }
+
     if (payload.courtText) {
-      await runGuidedFlow({
+      await askSaveConfirmation({
         organizationId: input.organizationId,
         senderUserId: input.senderUserId,
         fromPhone: input.fromPhone,
@@ -418,7 +423,7 @@ async function handleGuidedConversation(input: {
       return;
     }
 
-    await runGuidedFlow({
+    await askSaveConfirmation({
       organizationId: input.organizationId,
       senderUserId: input.senderUserId,
       fromPhone: input.fromPhone,
@@ -431,6 +436,51 @@ async function handleGuidedConversation(input: {
     });
     return;
   }
+
+  if (input.state.step === "confirm_save") {
+    if (!isSaveConfirmation(input.text)) {
+      await reply(input, "Reply SAVE to confirm this hearing, or CANCEL to stop.");
+      return;
+    }
+
+    await runGuidedFlow({
+      organizationId: input.organizationId,
+      senderUserId: input.senderUserId,
+      fromPhone: input.fromPhone,
+      flow: input.state.flow,
+      payload,
+    });
+    return;
+  }
+}
+
+async function askSaveConfirmation(input: {
+  organizationId: string;
+  senderUserId: string;
+  fromPhone: string;
+  flow: ConversationFlow;
+  payload: ConversationPayload;
+}) {
+  if (!input.payload.date || !input.payload.matterText) {
+    await reply(input, "Matter or date is missing. Send CANCEL and start again.");
+    return;
+  }
+
+  await saveConversationState({
+    organizationId: input.organizationId,
+    userId: input.senderUserId,
+    phone: input.fromPhone,
+    flow: input.flow,
+    step: "confirm_save",
+    payload: input.payload,
+  });
+
+  await reply(
+    input,
+    `Ready to save?\n\n${input.payload.matterText}\n${formatDateForWhatsapp(input.payload.date)}${
+      input.payload.startTime ? ` at ${input.payload.startTime}` : ""
+    }\n${input.payload.courtText ?? "Court not specified"}\n\nReply SAVE to confirm, or CANCEL to stop.`,
+  );
 }
 
 async function runGuidedFlow(input: {
@@ -1043,6 +1093,10 @@ function isCancelCommand(text: string) {
 
 function isSkip(text: string) {
   return ["skip", "no", "none", "-"].includes(text.trim().toLowerCase());
+}
+
+function isSaveConfirmation(text: string) {
+  return ["save", "yes", "confirm", "ok"].includes(text.trim().toLowerCase());
 }
 
 function parseLooseDate(text: string): string | null {

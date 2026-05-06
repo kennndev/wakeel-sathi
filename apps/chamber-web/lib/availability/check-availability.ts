@@ -144,7 +144,7 @@ export async function checkAvailability(
           conflicts.push({
             type: "same_day_different_city",
             severity: "hard",
-            reason: `Senior lawyer already has a hearing in ${formatCity(existingCity)} on this date. A same-day hearing in ${formatCity(proposedCity)} is not feasible.`,
+            reason: `There is already a hearing in ${formatCity(existingCity)} on this date. A same-day hearing in ${formatCity(proposedCity)} is not feasible.`,
             relatedEntityId: hearing.id,
           });
           continue;

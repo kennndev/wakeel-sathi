@@ -53,7 +53,7 @@ async function sendMetaWhatsappText(input: SendWhatsappTextInput) {
       },
       body: JSON.stringify({
         messaging_product: "whatsapp",
-        to: input.to,
+        to: normalizeMetaWhatsappRecipient(input.to),
         type: "text",
         text: {
           preview_url: false,
@@ -198,4 +198,10 @@ function extractTwilioMessageSid(json: unknown): string | null {
 
 function ensureTwilioWhatsappAddress(phone: string): string {
   return phone.startsWith("whatsapp:") ? phone : `whatsapp:${phone}`;
+}
+
+function normalizeMetaWhatsappRecipient(phone: string): string {
+  const digits = phone.replace(/\D/g, "");
+  if (digits.startsWith("0")) return `92${digits.slice(1)}`;
+  return digits;
 }

@@ -130,14 +130,6 @@ export async function checkAvailability(
           reason: "Senior lawyer already has a hearing at this time.",
           relatedEntityId: hearing.id,
         });
-      } else if (noExactTime) {
-        conflicts.push({
-          type: "senior_same_day",
-          severity: "hard",
-          reason:
-            "Senior lawyer already has a hearing on this date. Exact times are required to confirm a safe same-city gap.",
-          relatedEntityId: hearing.id,
-        });
       } else {
         const existingCourt = hearing.court_id ? courtMap.get(hearing.court_id) ?? null : null;
         const existingCity = getCourtCity(existingCourt);
@@ -149,6 +141,14 @@ export async function checkAvailability(
             type: "same_day_different_city",
             severity: "hard",
             reason: `There is already a hearing in ${formatCity(existingCity)} on this date. A same-day hearing in ${formatCity(proposedCity)} is not feasible.`,
+            relatedEntityId: hearing.id,
+          });
+        } else if (noExactTime) {
+          conflicts.push({
+            type: "senior_same_day",
+            severity: "hard",
+            reason:
+              "Senior lawyer already has a hearing on this date. Exact times are required to confirm a safe same-city gap.",
             relatedEntityId: hearing.id,
           });
         } else if (!sameCourt && !sameCity) {

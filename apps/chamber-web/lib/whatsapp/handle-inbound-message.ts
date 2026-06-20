@@ -55,7 +55,13 @@ type ScheduleHearingRow = {
 };
 
 type ConversationFlow = "check_slot" | "save_date";
-type ConversationStep = "date" | "time" | "matter" | "court" | "confirm_save";
+type ConversationStep =
+  | "date"
+  | "time"
+  | "matter"
+  | "matter_and_time"
+  | "court"
+  | "confirm_save";
 type ConversationPayload = {
   date?: string;
   startTime?: string | null;
@@ -185,6 +191,26 @@ export async function handleInboundWhatsappMessage(input: HandleInboundMessageIn
         organizationId: sender.organization_id,
         to: input.fromPhone,
         body: "Which city or court? Example: Lahore High Court, Multan High Court, or just Lahore.",
+        entityType: "whatsapp_inbound",
+        entityId: sender.user_id,
+        recipientUserId: sender.user_id,
+      });
+      return;
+    }
+
+    if (!dateFirstCheck.startTime) {
+      await saveConversationState({
+        organizationId: sender.organization_id,
+        userId: sender.user_id,
+        phone: input.fromPhone,
+        flow: "check_slot",
+        step: "matter_and_time",
+        payload: dateFirstCheck,
+      });
+      await sendWhatsappText({
+        organizationId: sender.organization_id,
+        to: input.fromPhone,
+        body: "Send the matter name/case number and time together. Example: Ahmed case 10am",
         entityType: "whatsapp_inbound",
         entityId: sender.user_id,
         recipientUserId: sender.user_id,
@@ -417,6 +443,22 @@ async function handleGuidedConversation(input: {
         return;
       }
 
+      if (!nextDateCheck.startTime) {
+        await saveConversationState({
+          organizationId: input.organizationId,
+          userId: input.senderUserId,
+          phone: input.fromPhone,
+          flow: "check_slot",
+          step: "matter_and_time",
+          payload: nextDateCheck,
+        });
+        await reply(
+          input,
+          "Send the matter name/case number and time together. Example: Ahmed case 10am",
+        );
+        return;
+      }
+
       await runCheckOnlyFlow({
         organizationId: input.organizationId,
         senderUserId: input.senderUserId,
@@ -449,15 +491,51 @@ async function handleGuidedConversation(input: {
     return;
   }
 
+  if (input.state.step === "matter_and_time") {
+    const matterAndTime = parseMatterAndTime(input.text);
+    if (!matterAndTime) {
+      await reply(
+        input,
+        "Please include both the matter name/case number and time. Example: Ahmed case 10am",
+      );
+      return;
+    }
+
+    await runCheckOnlyFlow({
+      organizationId: input.organizationId,
+      senderUserId: input.senderUserId,
+      fromPhone: input.fromPhone,
+      payload: { ...payload, ...matterAndTime },
+    });
+    return;
+  }
+
   if (input.state.step === "court") {
     if (input.state.flow === "check_slot") {
+      const courtText = isSkip(input.text) ? null : input.text.trim();
+      if (!payload.startTime) {
+        await saveConversationState({
+          organizationId: input.organizationId,
+          userId: input.senderUserId,
+          phone: input.fromPhone,
+          flow: "check_slot",
+          step: "matter_and_time",
+          payload: { ...payload, courtText },
+        });
+        await reply(
+          input,
+          "Send the matter name/case number and time together. Example: Ahmed case 10am",
+        );
+        return;
+      }
+
       await runCheckOnlyFlow({
         organizationId: input.organizationId,
         senderUserId: input.senderUserId,
         fromPhone: input.fromPhone,
         payload: {
           ...payload,
-          courtText: isSkip(input.text) ? null : input.text.trim(),
+          courtText,
         },
       });
       return;
@@ -667,11 +745,12 @@ async function runCheckOnlyFlow(input: {
     userId: input.senderUserId,
     phone: input.fromPhone,
     flow: "save_date",
-    step: "matter",
+    step: input.payload.matterText ? "confirm_save" : "matter",
     payload: {
       date: input.payload.date,
       startTime: input.payload.startTime,
       courtText: input.payload.courtText ?? null,
+      matterText: input.payload.matterText ?? null,
       checkedAvailable: true,
     },
   });
@@ -683,6 +762,7 @@ async function runCheckOnlyFlow(input: {
       time: input.payload.startTime,
       availability,
       seniorName: senior.full_name,
+      matterText: input.payload.matterText,
     }),
   );
 }
@@ -1252,6 +1332,24 @@ function parseLooseTime(text: string): string | null {
   return match ? normalizeTime(match[1]) : null;
 }
 
+function parseMatterAndTime(text: string): Pick<ConversationPayload, "matterText" | "startTime"> | null {
+  const timeMatch =
+    text.match(/\b(?:at\s+)?(\d{1,2}:\d{2}\s*(?:am|pm)?)\b/i) ??
+    text.match(/\b(?:at\s+)?(\d{1,2}\s*(?:am|pm))\b/i) ??
+    text.match(/\bat\s+(\d{1,2})\b/i);
+
+  const startTime = timeMatch ? normalizeTime(timeMatch[1]) : null;
+  if (!timeMatch || !startTime) return null;
+
+  const matterText = text
+    .replace(timeMatch[0], " ")
+    .replace(/\s{2,}/g, " ")
+    .replace(/[\s,;:-]+$/g, "")
+    .trim();
+
+  return matterText ? { matterText, startTime } : null;
+}
+
 function parseDateFirstCheck(text: string): ConversationPayload | null {
   const dateMatch = text.match(/(\d{4}-\d{2}-\d{2}|\d{1,2}[/-]\d{1,2}[/-]\d{2,4})/);
   if (!dateMatch || dateMatch.index !== 0) return null;
@@ -1422,6 +1520,7 @@ function formatQuickAvailabilityReply(input: {
   date: string;
   time?: string | null;
   seniorName: string;
+  matterText?: string | null;
   availability: {
     isAvailable: boolean;
     reason: string;
@@ -1431,7 +1530,11 @@ function formatQuickAvailabilityReply(input: {
   if (input.availability.isAvailable) {
     return `${input.seniorName} looks clear for ${formatDateForWhatsapp(input.date)}${
       input.time ? ` at ${input.time}` : ""
-    }.\n\nSend the matter name/case number to save it, or send another date and time to check a different slot.`;
+    }.${input.matterText ? `\nMatter: ${input.matterText}` : ""}\n\n${
+      input.matterText
+        ? "Reply SAVE to confirm this hearing, or CANCEL to stop."
+        : "Send the matter name/case number to save it, or send another date and time to check a different slot."
+    }`;
   }
 
   const conflict = input.availability.conflicts[0]?.reason ?? input.availability.reason;

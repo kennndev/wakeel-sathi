@@ -14,6 +14,8 @@ export type CheckAvailabilityInput = {
 export type AvailabilityConflict = {
   type:
     | "senior_same_time"
+    | "senior_same_day"
+    | "senior_insufficient_same_city_gap"
     | "appearing_same_time"
     | "senior_unavailable"
     | "appearing_unavailable"

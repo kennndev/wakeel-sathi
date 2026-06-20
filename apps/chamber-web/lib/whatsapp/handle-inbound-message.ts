@@ -221,7 +221,8 @@ export async function handleInboundWhatsappMessage(input: HandleInboundMessageIn
       await sendWhatsappText({
         organizationId: sender.organization_id,
         to: input.fromPhone,
-        body: "Send the matter name/case number and time together. Example: Ahmed case 10am",
+        body:
+          "Send the matter name/case number and time together. Example: Ahmed case 10am or WP-123/2026 10am",
         entityType: "whatsapp_inbound",
         entityId: sender.user_id,
         recipientUserId: sender.user_id,
@@ -476,7 +477,7 @@ async function handleGuidedConversation(input: {
         });
         await reply(
           input,
-          "Send the matter name/case number and time together. Example: Ahmed case 10am",
+          "Send the matter name/case number and time together. Example: Ahmed case 10am or WP-123/2026 10am",
         );
         return;
       }
@@ -518,7 +519,7 @@ async function handleGuidedConversation(input: {
     if (!matterAndTime) {
       await reply(
         input,
-        "Please include both the matter name/case number and time. Example: Ahmed case 10am",
+        "Please include both the matter name/case number and time. Example: Ahmed case 10am or WP-123/2026 10am",
       );
       return;
     }
@@ -558,7 +559,7 @@ async function handleGuidedConversation(input: {
         });
         await reply(
           input,
-          "Send the matter name/case number and time together. Example: Ahmed case 10am",
+          "Send the matter name/case number and time together. Example: Ahmed case 10am or WP-123/2026 10am",
         );
         return;
       }
@@ -908,26 +909,60 @@ async function resolveMatter(input: {
   matterText?: string | null;
   createdBy: string;
 }): Promise<MatterRow> {
-  const title = input.matterText?.trim() || "WhatsApp quick matter";
+  const parsed = parseMatterInput(input.matterText);
   const supabaseAdmin = getSupabaseAdmin();
 
+  if (parsed.caseNumber) {
+    const { data: exactCase, error: caseError } = await supabaseAdmin
+      .from("matters")
+      .select("id,title,case_number,court_id")
+      .eq("organization_id", input.organizationId)
+      .is("deleted_at", null)
+      .ilike("case_number", parsed.caseNumber)
+      .limit(1)
+      .maybeSingle();
+
+    if (caseError) throw new Error(`Failed to resolve matter: ${caseError.message}`);
+    if (exactCase) return exactCase as MatterRow;
+  }
+
+  if (parsed.title) {
+    const { data: exactTitle, error: titleError } = await supabaseAdmin
+      .from("matters")
+      .select("id,title,case_number,court_id")
+      .eq("organization_id", input.organizationId)
+      .is("deleted_at", null)
+      .ilike("title", parsed.title)
+      .limit(1)
+      .maybeSingle();
+
+    if (titleError) throw new Error(`Failed to resolve matter: ${titleError.message}`);
+    if (exactTitle) return exactTitle as MatterRow;
+  }
+
+  const reference = parsed.caseNumber ?? parsed.title ?? "WhatsApp quick matter";
   const { data: existing, error: findError } = await supabaseAdmin
     .from("matters")
     .select("id,title,case_number,court_id")
     .eq("organization_id", input.organizationId)
-    .ilike("title", `%${title}%`)
     .is("deleted_at", null)
+    .or(
+      `title.ilike.%${escapeLike(reference)}%,case_number.ilike.%${escapeLike(reference)}%`,
+    )
     .limit(1)
     .maybeSingle();
 
   if (findError) throw new Error(`Failed to resolve matter: ${findError.message}`);
   if (existing) return existing as MatterRow;
 
+  const title = parsed.title ?? `Case ${parsed.caseNumber}`;
+
   const { data: created, error: createError } = await supabaseAdmin
     .from("matters")
     .insert({
       organization_id: input.organizationId,
       title,
+      case_number: parsed.caseNumber,
       source: "manual",
       status: "open",
       priority: "normal",
@@ -939,6 +974,41 @@ async function resolveMatter(input: {
   if (createError) throw new Error(`Failed to create matter: ${createError.message}`);
 
   return created as MatterRow;
+}
+
+function parseMatterInput(value?: string | null): {
+  title: string | null;
+  caseNumber: string | null;
+} {
+  const text = value?.trim().replace(/^['"]|['"]$/g, "") || "WhatsApp quick matter";
+  const namedCase = text.match(/^(.+?)\s+case\s*(?:no\.?|number)\s*[:#-]?\s*(.+)$/i);
+  if (namedCase && looksLikeCaseNumber(namedCase[2])) {
+    return { title: namedCase[1].trim(), caseNumber: namedCase[2].trim() };
+  }
+
+  const pipeParts = text.split("|").map((part) => part.trim()).filter(Boolean);
+  if (pipeParts.length === 2 && looksLikeCaseNumber(pipeParts[1])) {
+    return { title: pipeParts[0], caseNumber: pipeParts[1] };
+  }
+
+  if (looksLikeCaseNumber(text)) {
+    return { title: null, caseNumber: text };
+  }
+
+  return { title: text, caseNumber: null };
+}
+
+function looksLikeCaseNumber(value: string): boolean {
+  const text = value.trim();
+  return (
+    /^\d+$/.test(text) ||
+    /\d+\s*\/\s*\d{2,4}/.test(text) ||
+    /^(?=.*\d)[a-z.()]+[-/#]\d+[a-z0-9.()/-]*$/i.test(text)
+  );
+}
+
+function escapeLike(value: string): string {
+  return value.replaceAll("%", "\\%").replaceAll("_", "\\_").replaceAll(",", "\\,");
 }
 
 async function resolveCourt(input: {

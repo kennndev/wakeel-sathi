@@ -199,6 +199,17 @@ export async function handleInboundWhatsappMessage(input: HandleInboundMessageIn
     }
 
     if (!dateFirstCheck.startTime) {
+      if (
+        await rejectDifferentCityBeforeTime({
+          organizationId: sender.organization_id,
+          senderUserId: sender.user_id,
+          fromPhone: input.fromPhone,
+          payload: dateFirstCheck,
+        })
+      ) {
+        return;
+      }
+
       await saveConversationState({
         organizationId: sender.organization_id,
         userId: sender.user_id,
@@ -444,6 +455,17 @@ async function handleGuidedConversation(input: {
       }
 
       if (!nextDateCheck.startTime) {
+        if (
+          await rejectDifferentCityBeforeTime({
+            organizationId: input.organizationId,
+            senderUserId: input.senderUserId,
+            fromPhone: input.fromPhone,
+            payload: nextDateCheck,
+          })
+        ) {
+          return;
+        }
+
         await saveConversationState({
           organizationId: input.organizationId,
           userId: input.senderUserId,
@@ -514,13 +536,25 @@ async function handleGuidedConversation(input: {
     if (input.state.flow === "check_slot") {
       const courtText = isSkip(input.text) ? null : input.text.trim();
       if (!payload.startTime) {
+        const nextPayload = { ...payload, courtText };
+        if (
+          await rejectDifferentCityBeforeTime({
+            organizationId: input.organizationId,
+            senderUserId: input.senderUserId,
+            fromPhone: input.fromPhone,
+            payload: nextPayload,
+          })
+        ) {
+          return;
+        }
+
         await saveConversationState({
           organizationId: input.organizationId,
           userId: input.senderUserId,
           phone: input.fromPhone,
           flow: "check_slot",
           step: "matter_and_time",
-          payload: { ...payload, courtText },
+          payload: nextPayload,
         });
         await reply(
           input,
@@ -765,6 +799,50 @@ async function runCheckOnlyFlow(input: {
       matterText: input.payload.matterText,
     }),
   );
+}
+
+async function rejectDifferentCityBeforeTime(input: {
+  organizationId: string;
+  senderUserId: string;
+  fromPhone: string;
+  payload: ConversationPayload;
+}): Promise<boolean> {
+  if (!input.payload.date || !input.payload.courtText) return false;
+
+  const senior = await resolveSeniorLawyer({
+    organizationId: input.organizationId,
+    seniorLawyerName: input.payload.seniorLawyerName,
+  });
+  if (!senior) return false;
+
+  const court = await resolveCourt({
+    organizationId: input.organizationId,
+    courtText: input.payload.courtText,
+  });
+  if (!court) return false;
+
+  const availability = await checkAvailability({
+    organizationId: input.organizationId,
+    seniorLawyerId: senior.id,
+    date: input.payload.date,
+    startTime: null,
+    endTime: null,
+    courtId: court.id,
+    matterId: null,
+  });
+  const differentCityConflict = availability.conflicts.find(
+    (conflict) => conflict.type === "same_day_different_city",
+  );
+  if (!differentCityConflict) return false;
+
+  await reply(
+    input,
+    `There is a clash for ${senior.full_name} on ${formatDateForWhatsapp(input.payload.date)}.\n${
+      differentCityConflict.reason
+    }\n\nSend another date if you want me to check a different slot.`,
+  );
+  await clearConversationState(input.organizationId, input.senderUserId, input.fromPhone);
+  return true;
 }
 
 async function findWhatsappSender(phone: string): Promise<WhatsappContactRow | null> {

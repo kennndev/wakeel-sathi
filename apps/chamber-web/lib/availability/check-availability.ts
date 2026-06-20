@@ -36,6 +36,8 @@ type AvailabilityBlockRow = {
   block_type: string;
 };
 
+const DEFAULT_SAME_CITY_GAP_MINUTES = 120;
+
 export async function checkAvailability(
   input: CheckAvailabilityInput,
 ): Promise<AvailabilityResult> {
@@ -130,15 +132,17 @@ export async function checkAvailability(
         });
       } else if (noExactTime) {
         conflicts.push({
-          type: "same_day_different_court",
-          severity: "soft",
+          type: "senior_same_day",
+          severity: "hard",
           reason:
-            "Senior lawyer already has at least one hearing on this date. Time is not exact, so confirm manually.",
+            "Senior lawyer already has a hearing on this date. Exact times are required to confirm a safe same-city gap.",
           relatedEntityId: hearing.id,
         });
-      } else if (input.courtId && hearing.court_id && hearing.court_id !== input.courtId) {
-        const existingCourt = courtMap.get(hearing.court_id) ?? null;
+      } else {
+        const existingCourt = hearing.court_id ? courtMap.get(hearing.court_id) ?? null : null;
         const existingCity = getCourtCity(existingCourt);
+        const sameCourt = Boolean(input.courtId && hearing.court_id === input.courtId);
+        const sameCity = Boolean(proposedCity && existingCity && proposedCity === existingCity);
 
         if (proposedCity && existingCity && proposedCity !== existingCity) {
           conflicts.push({
@@ -147,15 +151,35 @@ export async function checkAvailability(
             reason: `There is already a hearing in ${formatCity(existingCity)} on this date. A same-day hearing in ${formatCity(proposedCity)} is not feasible.`,
             relatedEntityId: hearing.id,
           });
-          continue;
-        }
+        } else if (!sameCourt && !sameCity) {
+          conflicts.push({
+            type: "senior_same_day",
+            severity: "hard",
+            reason:
+              "Senior lawyer already has a hearing on this date, and the courts could not be confirmed as being in the same city.",
+            relatedEntityId: hearing.id,
+          });
+        } else {
+          const requiredGap = getSameCityGapMinutes();
+          const actualGap = getTimeGapMinutes(
+            input.startTime,
+            input.endTime,
+            hearing.start_time,
+            hearing.end_time,
+          );
 
-        conflicts.push({
-          type: "same_day_different_court",
-          severity: "soft",
-          reason: "Senior lawyer has another hearing in a different court on the same date.",
-          relatedEntityId: hearing.id,
-        });
+          if (actualGap === null || actualGap < requiredGap) {
+            conflicts.push({
+              type: "senior_insufficient_same_city_gap",
+              severity: "hard",
+              reason:
+                actualGap === null
+                  ? "The hearing times could not be compared safely."
+                  : `The hearings are in the same city, but the ${actualGap}-minute gap is too short. At least ${requiredGap} minutes are required.`,
+              relatedEntityId: hearing.id,
+            });
+          }
+        }
       }
     }
 
@@ -269,4 +293,38 @@ function formatCity(city: string): string {
     .split(/\s+/)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+function getSameCityGapMinutes(): number {
+  const configured = Number(process.env.SAME_CITY_MIN_GAP_MINUTES);
+  return Number.isFinite(configured) && configured >= 0
+    ? configured
+    : DEFAULT_SAME_CITY_GAP_MINUTES;
+}
+
+function getTimeGapMinutes(
+  firstStart?: string | null,
+  firstEnd?: string | null,
+  secondStart?: string | null,
+  secondEnd?: string | null,
+): number | null {
+  const firstStartMinutes = toMinutes(firstStart);
+  const secondStartMinutes = toMinutes(secondStart);
+  if (firstStartMinutes === null || secondStartMinutes === null) return null;
+
+  const firstEndMinutes = toMinutes(firstEnd) ?? firstStartMinutes + 60;
+  const secondEndMinutes = toMinutes(secondEnd) ?? secondStartMinutes + 60;
+
+  if (firstEndMinutes <= secondStartMinutes) return secondStartMinutes - firstEndMinutes;
+  if (secondEndMinutes <= firstStartMinutes) return firstStartMinutes - secondEndMinutes;
+  return 0;
+}
+
+function toMinutes(time?: string | null): number | null {
+  if (!time) return null;
+  const [hourRaw, minuteRaw] = time.split(":");
+  const hour = Number(hourRaw);
+  const minute = Number(minuteRaw);
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return null;
+  return hour * 60 + minute;
 }
